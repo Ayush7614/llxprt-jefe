@@ -31,7 +31,7 @@ pub fn TerminalView(props: &TerminalViewProps) -> impl Into<AnyElement<'static>>
     };
 
     let focus_hint = if props.focused {
-        "F12/t to unfocus"
+        "F12 to unfocus"
     } else {
         "F12/t to focus"
     };

@@ -25,7 +25,7 @@ pub fn KeybindBar(props: &KeybindBarProps) -> impl Into<AnyElement<'static>> {
     let rc = ResolvedColors::from_theme(Some(&props.colors));
 
     let hints = if props.terminal_focused {
-        "F12/t unfocus"
+        "F12 unfocus"
     } else {
         match props.screen_mode {
             ScreenMode::Dashboard => {

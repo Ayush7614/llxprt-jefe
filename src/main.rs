@@ -68,7 +68,14 @@ fn compute_pty_layout(term_cols: u16, term_rows: u16) -> (u16, u16, u16, u16) {
     let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
     let middle_cols = render_cols.saturating_sub(LEFT_COL_WIDTH + RIGHT_COL_WIDTH);
 
-    let agent_rows = content_rows.saturating_mul(25).saturating_div(100);
+    // Round to nearest (half-up) to match taffy's cumulative rounding of
+    // percentage-based flex children.  Simple truncation (`*25/100`) under-
+    // counts by 1 row whenever the product has a fractional part ≥ 0.5,
+    // which shifts the mouse-coordinate origin for the terminal pane.
+    let agent_rows = content_rows
+        .saturating_mul(25)
+        .saturating_add(50)
+        .saturating_div(100);
     let terminal_slot_rows = content_rows.saturating_sub(agent_rows);
 
     let pty_rows = terminal_slot_rows
