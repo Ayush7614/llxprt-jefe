@@ -485,10 +485,13 @@ pub fn create_session(
         if !launch_env.is_empty() {
             cmd.arg("env");
             for (key, value) in &launch_env {
-                // Shell-quote values so they survive tmux's join-and-sh-c-eval.
-                // Without quoting, values containing spaces (e.g. SANDBOX_FLAGS)
-                // get split into separate shell tokens after tmux concatenation.
-                cmd.arg(format!("{}={}", key, shell_escape_single(value)));
+                // Each .arg() is a single argv entry to tmux.  tmux internally
+                // escapes each argument when joining them for sh -c, so spaces
+                // inside the value are preserved without any extra quoting.
+                // Adding shell_escape_single() here would embed literal quote
+                // characters in the value (double-quoting), breaking consumers
+                // like llxprt's shell-quote parser.
+                cmd.arg(format!("{key}={value}"));
             }
         }
 
@@ -742,15 +745,17 @@ mod tests {
 
 
     #[test]
-    fn sandbox_flags_env_value_is_shell_quoted_for_tmux() {
+    fn sandbox_flags_env_value_is_raw_for_tmux_argv() {
         let key = "SANDBOX_FLAGS";
         let value = "--cpus=2 --memory=12288m --pids-limit=256";
-        let arg = format!("{}={}", key, shell_escape_single(value));
-        // The single-quoted value must survive shell word-splitting after
-        // tmux joins argv entries with spaces and passes to `sh -c`.
+        let arg = format!("{key}={value}");
+        // Rust's Command::arg() passes this as a single argv entry to tmux.
+        // tmux escapes each argument when constructing its sh -c command, so
+        // spaces survive without extra quoting.  Adding shell_escape_single()
+        // would embed literal quote characters in the env var value.
         assert_eq!(
             arg,
-            "SANDBOX_FLAGS='--cpus=2 --memory=12288m --pids-limit=256'"
+            "SANDBOX_FLAGS=--cpus=2 --memory=12288m --pids-limit=256"
         );
     }
 
