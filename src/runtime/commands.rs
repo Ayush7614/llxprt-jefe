@@ -10,16 +10,13 @@ use std::time::{Duration, Instant};
 
 use tracing::debug;
 
-use crate::domain::{LaunchSignature, SandboxEngine};
+use crate::domain::LaunchSignature;
 
 use super::errors::RuntimeError;
 use super::preflight::sandbox_ssh_agent_warning;
 
-const SANDBOX_IMAGE_REPO: &str = "ghcr.io/vybestack/llxprt-code/sandbox";
-const SANDBOX_IMAGE_NIGHTLY_TAG: &str = "nightly";
 const REMOTE_SSH_COMMAND_TIMEOUT: Duration = Duration::from_secs(20);
 
-const SANDBOX_IMAGE_LATEST_TAG: &str = "latest";
 
 /// Build a local tmux `Command` that skips user config (`-f /dev/null`).
 ///
@@ -363,14 +360,13 @@ fn build_remote_launch_command(
             "export SANDBOX_FLAGS={};",
             shell_escape_single(&signature.sandbox_flags)
         ));
-        if std::env::var_os("LLXPRT_SANDBOX_IMAGE").is_none()
-            && let Some(image_ref) = resolve_sandbox_image(signature.sandbox_engine)
-        {
+        if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
             env_exports.push(format!(
                 "export LLXPRT_SANDBOX_IMAGE={};",
-                shell_escape_single(&image_ref)
+                shell_escape_single(&image_ref.to_string_lossy())
             ));
         }
+
     }
     if !signature.llxprt_debug.is_empty() {
         env_exports.push(format!(
@@ -399,112 +395,6 @@ fn build_remote_launch_command(
     Ok(remote_tmux_command(remote, &tmux_script))
 }
 
-
-fn looks_like_semver_tag(version: &str) -> bool {
-    let split_at = version.find(['-', '+']).unwrap_or(version.len());
-    let core = &version[..split_at];
-    let suffix = if split_at < version.len() {
-        Some(&version[split_at + 1..])
-    } else {
-        None
-    };
-
-    let mut parts = core.split('.');
-    let major = parts.next().unwrap_or_default();
-    let minor = parts.next().unwrap_or_default();
-    let patch = parts.next().unwrap_or_default();
-    if parts.next().is_some() {
-        return false;
-    }
-
-    if [major, minor, patch]
-        .iter()
-        .any(|part| part.is_empty() || !part.chars().all(|c| c.is_ascii_digit()))
-    {
-        return false;
-    }
-
-    if let Some(suffix) = suffix {
-        if suffix.is_empty() {
-            return false;
-        }
-
-        if !suffix
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_')
-        {
-            return false;
-        }
-    }
-
-    true
-}
-
-fn parse_llxprt_version_tag(version_output: &str) -> Option<String> {
-    version_output
-        .split_whitespace()
-        .map(|token| {
-            token.trim_matches(|c: char| {
-                !(c.is_ascii_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '+')
-            })
-        })
-        .find_map(|token| {
-            let normalized = token.strip_prefix('v').unwrap_or(token);
-            if looks_like_semver_tag(normalized) {
-                Some(normalized.to_owned())
-            } else {
-                None
-            }
-        })
-}
-
-fn detect_llxprt_version_tag() -> Option<String> {
-    let output = Command::new("llxprt").arg("--version").output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_llxprt_version_tag(&stdout)
-}
-
-fn sandbox_manifest_exists(engine: SandboxEngine, image_ref: &str) -> bool {
-    let command = match engine {
-        SandboxEngine::Podman => "podman",
-        SandboxEngine::Docker => "docker",
-        SandboxEngine::Seatbelt => return false,
-    };
-
-    Command::new(command)
-        .args(["manifest", "inspect", image_ref])
-        .output()
-        .is_ok_and(|out| out.status.success())
-}
-
-fn resolve_sandbox_image(engine: SandboxEngine) -> Option<String> {
-    match engine {
-        SandboxEngine::Seatbelt => None,
-        SandboxEngine::Podman | SandboxEngine::Docker => {
-            if let Some(version_tag) = detect_llxprt_version_tag() {
-                let version_image = format!("{SANDBOX_IMAGE_REPO}:{version_tag}");
-                if sandbox_manifest_exists(engine, &version_image) {
-                    return Some(version_image);
-                }
-            }
-
-            let nightly_image = format!("{SANDBOX_IMAGE_REPO}:{SANDBOX_IMAGE_NIGHTLY_TAG}");
-            if sandbox_manifest_exists(engine, &nightly_image) {
-                return Some(nightly_image);
-            }
-
-            let latest_image = format!("{SANDBOX_IMAGE_REPO}:{SANDBOX_IMAGE_LATEST_TAG}");
-            if sandbox_manifest_exists(engine, &latest_image) {
-                return Some(latest_image);
-            }
-
-            None
-        }
-    }
-}
 
 /// Create a new detached tmux session running llxprt.
 ///
@@ -562,11 +452,18 @@ pub fn create_session(
             llxprt_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
             launch_env.push(("SANDBOX_FLAGS".to_owned(), signature.sandbox_flags.clone()));
 
-            if std::env::var_os("LLXPRT_SANDBOX_IMAGE").is_none()
-                && let Some(image_ref) = resolve_sandbox_image(signature.sandbox_engine)
-            {
-                launch_env.push(("LLXPRT_SANDBOX_IMAGE".to_owned(), image_ref));
+            // Let llxprt resolve its own sandbox image — it knows its version
+            // and can give clear errors (e.g. "daemon not running") instead of
+            // the misleading "image missing" that results from jefe pre-resolving
+            // via `manifest inspect` (which queries the registry without a daemon).
+            // The user can still override via LLXPRT_SANDBOX_IMAGE in their env.
+            if let Some(image_ref) = std::env::var_os("LLXPRT_SANDBOX_IMAGE") {
+                launch_env.push((
+                    "LLXPRT_SANDBOX_IMAGE".to_owned(),
+                    image_ref.to_string_lossy().into_owned(),
+                ));
             }
+
 
             launch_warning = sandbox_ssh_agent_warning();
         }
@@ -588,7 +485,10 @@ pub fn create_session(
         if !launch_env.is_empty() {
             cmd.arg("env");
             for (key, value) in &launch_env {
-                cmd.arg(format!("{key}={value}"));
+                // Shell-quote values so they survive tmux's join-and-sh-c-eval.
+                // Without quoting, values containing spaces (e.g. SANDBOX_FLAGS)
+                // get split into separate shell tokens after tmux concatenation.
+                cmd.arg(format!("{}={}", key, shell_escape_single(value)));
             }
         }
 
@@ -840,32 +740,18 @@ mod tests {
         assert!(tmux_script.contains("set-option -t 'jefe-agent-test' remain-on-exit on"));
     }
 
+
     #[test]
-    fn parse_llxprt_version_tag_handles_plain_semver() {
+    fn sandbox_flags_env_value_is_shell_quoted_for_tmux() {
+        let key = "SANDBOX_FLAGS";
+        let value = "--cpus=2 --memory=12288m --pids-limit=256";
+        let arg = format!("{}={}", key, shell_escape_single(value));
+        // The single-quoted value must survive shell word-splitting after
+        // tmux joins argv entries with spaces and passes to `sh -c`.
         assert_eq!(
-            parse_llxprt_version_tag("0.8.1\n"),
-            Some("0.8.1".to_owned())
+            arg,
+            "SANDBOX_FLAGS='--cpus=2 --memory=12288m --pids-limit=256'"
         );
     }
 
-    #[test]
-    fn parse_llxprt_version_tag_handles_prefixed_semver() {
-        assert_eq!(
-            parse_llxprt_version_tag("llxprt v0.9.0"),
-            Some("0.9.0".to_owned())
-        );
-    }
-
-    #[test]
-    fn parse_llxprt_version_tag_handles_nightly_semver_suffix() {
-        assert_eq!(
-            parse_llxprt_version_tag("0.9.0-nightly.260301.0223eb66a\n"),
-            Some("0.9.0-nightly.260301.0223eb66a".to_owned())
-        );
-    }
-
-    #[test]
-    fn parse_llxprt_version_tag_rejects_non_semver() {
-        assert_eq!(parse_llxprt_version_tag("nightly build"), None);
-    }
 }
