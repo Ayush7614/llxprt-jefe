@@ -238,6 +238,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                 state.agents = persisted.agents;
                 state.selected_repository_index = persisted.selected_repository_index;
                 state.selected_agent_index = persisted.selected_agent_index;
+                state.hide_idle_repositories = persisted.hide_idle_repositories;
                 state.last_selected_agent_by_repo = persisted.last_selected_agent_by_repo;
                 state.terminal_focused = false;
                 state.rebuild_repository_agent_ids();

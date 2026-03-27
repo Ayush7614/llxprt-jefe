@@ -98,6 +98,7 @@ pub fn to_persisted_state(state: &AppState) -> PersistedState {
         agents: state.agents.clone(),
         selected_repository_index: state.selected_repository_index,
         selected_agent_index: state.selected_agent_index,
+        hide_idle_repositories: state.hide_idle_repositories,
         last_selected_agent_by_repo: state.last_selected_agent_by_repo.clone(),
     }
 }
