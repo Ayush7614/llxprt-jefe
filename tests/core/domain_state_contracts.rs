@@ -171,47 +171,49 @@ fn navigate_down_at_end_stays_at_end() {
 
 #[test]
 fn toggle_hide_idle_repositories_filters_to_running_repositories() {
-    let mut state = AppState::default();
-    state.repositories = vec![
-        Repository::new(
-            RepositoryId("r1".into()),
-            "R1".into(),
-            "r1".into(),
-            PathBuf::from("/r1"),
-        ),
-        Repository::new(
-            RepositoryId("r2".into()),
-            "R2".into(),
-            "r2".into(),
-            PathBuf::from("/r2"),
-        ),
-        Repository::new(
-            RepositoryId("r3".into()),
-            "R3".into(),
-            "r3".into(),
-            PathBuf::from("/r3"),
-        ),
-    ];
-    state.agents = vec![
-        Agent::new(
-            AgentId("a1".into()),
-            RepositoryId("r1".into()),
-            "Idle A1".into(),
-            PathBuf::from("/r1/a1"),
-        ),
-        {
-            let mut running = Agent::new(
-                AgentId("a2".into()),
+    let state = AppState {
+        repositories: vec![
+            Repository::new(
+                RepositoryId("r1".into()),
+                "R1".into(),
+                "r1".into(),
+                PathBuf::from("/r1"),
+            ),
+            Repository::new(
                 RepositoryId("r2".into()),
-                "Running A2".into(),
-                PathBuf::from("/r2/a2"),
-            );
-            running.status = AgentStatus::Running;
-            running
-        },
-    ];
-    state.selected_repository_index = Some(0);
-    state.pane_focus = PaneFocus::Repositories;
+                "R2".into(),
+                "r2".into(),
+                PathBuf::from("/r2"),
+            ),
+            Repository::new(
+                RepositoryId("r3".into()),
+                "R3".into(),
+                "r3".into(),
+                PathBuf::from("/r3"),
+            ),
+        ],
+        agents: vec![
+            Agent::new(
+                AgentId("a1".into()),
+                RepositoryId("r1".into()),
+                "Idle A1".into(),
+                PathBuf::from("/r1/a1"),
+            ),
+            {
+                let mut running = Agent::new(
+                    AgentId("a2".into()),
+                    RepositoryId("r2".into()),
+                    "Running A2".into(),
+                    PathBuf::from("/r2/a2"),
+                );
+                running.status = AgentStatus::Running;
+                running
+            },
+        ],
+        selected_repository_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        ..AppState::default()
+    };
 
     let next = state.apply(AppEvent::ToggleHideIdleRepositories);
 
@@ -226,57 +228,59 @@ fn toggle_hide_idle_repositories_filters_to_running_repositories() {
 
 #[test]
 fn repository_navigation_skips_idle_repositories_when_hidden() {
-    let mut state = AppState::default();
-    state.repositories = vec![
-        Repository::new(
-            RepositoryId("r1".into()),
-            "R1".into(),
-            "r1".into(),
-            PathBuf::from("/r1"),
-        ),
-        Repository::new(
-            RepositoryId("r2".into()),
-            "R2".into(),
-            "r2".into(),
-            PathBuf::from("/r2"),
-        ),
-        Repository::new(
-            RepositoryId("r3".into()),
-            "R3".into(),
-            "r3".into(),
-            PathBuf::from("/r3"),
-        ),
-    ];
-    state.agents = vec![
-        {
-            let mut running = Agent::new(
-                AgentId("a1".into()),
+    let state = AppState {
+        repositories: vec![
+            Repository::new(
                 RepositoryId("r1".into()),
-                "Running A1".into(),
-                PathBuf::from("/r1/a1"),
-            );
-            running.status = AgentStatus::Running;
-            running
-        },
-        Agent::new(
-            AgentId("a2".into()),
-            RepositoryId("r2".into()),
-            "Idle A2".into(),
-            PathBuf::from("/r2/a2"),
-        ),
-        {
-            let mut running = Agent::new(
-                AgentId("a3".into()),
+                "R1".into(),
+                "r1".into(),
+                PathBuf::from("/r1"),
+            ),
+            Repository::new(
+                RepositoryId("r2".into()),
+                "R2".into(),
+                "r2".into(),
+                PathBuf::from("/r2"),
+            ),
+            Repository::new(
                 RepositoryId("r3".into()),
-                "Running A3".into(),
-                PathBuf::from("/r3/a3"),
-            );
-            running.status = AgentStatus::Running;
-            running
-        },
-    ];
-    state.selected_repository_index = Some(0);
-    state.pane_focus = PaneFocus::Repositories;
+                "R3".into(),
+                "r3".into(),
+                PathBuf::from("/r3"),
+            ),
+        ],
+        agents: vec![
+            {
+                let mut running = Agent::new(
+                    AgentId("a1".into()),
+                    RepositoryId("r1".into()),
+                    "Running A1".into(),
+                    PathBuf::from("/r1/a1"),
+                );
+                running.status = AgentStatus::Running;
+                running
+            },
+            Agent::new(
+                AgentId("a2".into()),
+                RepositoryId("r2".into()),
+                "Idle A2".into(),
+                PathBuf::from("/r2/a2"),
+            ),
+            {
+                let mut running = Agent::new(
+                    AgentId("a3".into()),
+                    RepositoryId("r3".into()),
+                    "Running A3".into(),
+                    PathBuf::from("/r3/a3"),
+                );
+                running.status = AgentStatus::Running;
+                running
+            },
+        ],
+        selected_repository_index: Some(0),
+        pane_focus: PaneFocus::Repositories,
+        ..AppState::default()
+    };
 
     let next = state.apply(AppEvent::ToggleHideIdleRepositories);
     assert!(next.hide_idle_repositories);
@@ -290,36 +294,38 @@ fn repository_navigation_skips_idle_repositories_when_hidden() {
 
 #[test]
 fn toggling_hide_idle_off_restores_selectable_repository() {
-    let mut state = AppState::default();
-    state.repositories = vec![
-        Repository::new(
-            RepositoryId("r1".into()),
-            "R1".into(),
-            "r1".into(),
-            PathBuf::from("/r1"),
-        ),
-        Repository::new(
-            RepositoryId("r2".into()),
-            "R2".into(),
-            "r2".into(),
-            PathBuf::from("/r2"),
-        ),
-    ];
-    state.agents = vec![
-        Agent::new(
-            AgentId("a1".into()),
-            RepositoryId("r1".into()),
-            "Idle A1".into(),
-            PathBuf::from("/r1/a1"),
-        ),
-        Agent::new(
-            AgentId("a2".into()),
-            RepositoryId("r2".into()),
-            "Idle A2".into(),
-            PathBuf::from("/r2/a2"),
-        ),
-    ];
-    state.selected_repository_index = Some(1);
+    let state = AppState {
+        repositories: vec![
+            Repository::new(
+                RepositoryId("r1".into()),
+                "R1".into(),
+                "r1".into(),
+                PathBuf::from("/r1"),
+            ),
+            Repository::new(
+                RepositoryId("r2".into()),
+                "R2".into(),
+                "r2".into(),
+                PathBuf::from("/r2"),
+            ),
+        ],
+        agents: vec![
+            Agent::new(
+                AgentId("a1".into()),
+                RepositoryId("r1".into()),
+                "Idle A1".into(),
+                PathBuf::from("/r1/a1"),
+            ),
+            Agent::new(
+                AgentId("a2".into()),
+                RepositoryId("r2".into()),
+                "Idle A2".into(),
+                PathBuf::from("/r2/a2"),
+            ),
+        ],
+        selected_repository_index: Some(1),
+        ..AppState::default()
+    };
 
     let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
     assert!(hidden.hide_idle_repositories);
@@ -347,32 +353,34 @@ fn toggle_terminal_focus_sets_terminal_focused() {
 
 #[test]
 fn select_repository_ignores_hidden_repository_when_filter_enabled() {
-    let mut state = AppState::default();
-    state.repositories = vec![
-        Repository::new(
-            RepositoryId("r1".into()),
-            "R1".into(),
-            "r1".into(),
-            PathBuf::from("/r1"),
-        ),
-        Repository::new(
-            RepositoryId("r2".into()),
-            "R2".into(),
-            "r2".into(),
-            PathBuf::from("/r2"),
-        ),
-    ];
-    state.agents = vec![{
-        let mut running = Agent::new(
-            AgentId("a1".into()),
-            RepositoryId("r1".into()),
-            "Running A1".into(),
-            PathBuf::from("/r1/a1"),
-        );
-        running.status = AgentStatus::Running;
-        running
-    }];
-    state.selected_repository_index = Some(0);
+    let state = AppState {
+        repositories: vec![
+            Repository::new(
+                RepositoryId("r1".into()),
+                "R1".into(),
+                "r1".into(),
+                PathBuf::from("/r1"),
+            ),
+            Repository::new(
+                RepositoryId("r2".into()),
+                "R2".into(),
+                "r2".into(),
+                PathBuf::from("/r2"),
+            ),
+        ],
+        agents: vec![{
+            let mut running = Agent::new(
+                AgentId("a1".into()),
+                RepositoryId("r1".into()),
+                "Running A1".into(),
+                PathBuf::from("/r1/a1"),
+            );
+            running.status = AgentStatus::Running;
+            running
+        }],
+        selected_repository_index: Some(0),
+        ..AppState::default()
+    };
 
     let filtered = state.apply(AppEvent::ToggleHideIdleRepositories);
     assert!(filtered.hide_idle_repositories);

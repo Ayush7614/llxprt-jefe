@@ -69,13 +69,11 @@ fn apply_session_style(session_name: &str) {
 }
 
 pub fn enforce_clipboard_passthrough(session_name: &str) {
+    const PANE_FORMAT: &str = "#{session_name}:#{window_index}.#{pane_index}";
+
     let _ = tmux_cmd_status(["set-option", "-g", "set-clipboard", "on"].as_ref(), None);
     let _ = tmux_cmd_status(
         ["set-option", "-gp", "allow-passthrough", "on"].as_ref(),
-        None,
-    );
-    let _ = tmux_cmd_status(
-        ["set-option", "-t", session_name, "set-clipboard", "on"].as_ref(),
         None,
     );
     let _ = tmux_cmd_status(
@@ -92,13 +90,7 @@ pub fn enforce_clipboard_passthrough(session_name: &str) {
     );
 
     if let Ok(output) = tmux_command()
-        .args([
-            "list-panes",
-            "-t",
-            session_name,
-            "-F",
-            "#{session_name}:#{window_index}.#{pane_index}",
-        ])
+        .args(["list-panes", "-t", session_name, "-F", PANE_FORMAT])
         .output()
         && output.status.success()
     {
@@ -112,8 +104,8 @@ pub fn enforce_clipboard_passthrough(session_name: &str) {
     }
 }
 
-pub(crate) fn shell_escape_single(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r#"'\''"#))
+pub fn shell_escape_single(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
 }
 
 fn shell_join(parts: &[String]) -> String {
@@ -189,7 +181,7 @@ fn remote_ssh_args(
     ]
 }
 
-pub(crate) fn remote_tmux_command(
+pub fn remote_tmux_command(
     remote: &crate::domain::RemoteRepositorySettings,
     inner_command: &str,
 ) -> String {
@@ -225,7 +217,7 @@ fn remote_kill_session_command(
     )
 }
 
-pub(crate) fn build_remote_attach_command(
+pub fn build_remote_attach_command(
     remote: &crate::domain::RemoteRepositorySettings,
     session_name: &str,
 ) -> String {
@@ -240,7 +232,7 @@ pub(crate) fn build_remote_attach_command(
     format!("exec ssh {}", shell_join(&ssh_args))
 }
 
-pub(crate) fn run_remote_ssh(
+pub fn run_remote_ssh(
     remote: &crate::domain::RemoteRepositorySettings,
     remote_command: &str,
 ) -> Result<Output, RuntimeError> {
@@ -333,6 +325,7 @@ fn resolve_remote_llxprt_command(
     ))
 }
 
+#[allow(clippy::too_many_lines)]
 fn build_remote_launch_command(
     session_name: &str,
     work_dir: &Path,
@@ -412,7 +405,7 @@ fn build_remote_launch_command(
 /// the tmux session becomes "dead" until explicit relaunch.
 ///
 /// @pseudocode component-002 lines 01-06
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 pub fn create_session(
     session_name: &str,
     work_dir: &Path,
@@ -455,8 +448,7 @@ pub fn create_session(
         // Sandbox launch parity with llxprt-code: explicit --sandbox and engine,
         // plus SANDBOX_FLAGS environment support.
         let mut launch_env: Vec<(String, String)> = Vec::new();
-        let mut launch_warning: Option<String> = None;
-        if signature.sandbox_enabled {
+        let launch_warning: Option<String> = if signature.sandbox_enabled {
             llxprt_args.push("--sandbox".to_owned());
             llxprt_args.push("--sandbox-engine".to_owned());
             llxprt_args.push(signature.sandbox_engine.as_llxprt_arg().to_owned());
@@ -474,8 +466,10 @@ pub fn create_session(
                 ));
             }
 
-            launch_warning = sandbox_ssh_agent_warning();
-        }
+            sandbox_ssh_agent_warning()
+        } else {
+            None
+        };
 
         if !signature.llxprt_debug.is_empty() {
             launch_env.push(("LLXPRT_DEBUG".to_owned(), signature.llxprt_debug.clone()));
@@ -598,7 +592,7 @@ pub fn capture_pane_lines(session_name: &str) -> Option<Vec<String>> {
     }
 
     let text = String::from_utf8_lossy(&output.stdout);
-    Some(text.lines().map(|line| line.to_owned()).collect())
+    Some(text.lines().map(std::borrow::ToOwned::to_owned).collect())
 }
 
 /// Kill a tmux session.

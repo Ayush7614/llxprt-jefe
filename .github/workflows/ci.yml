@@ -123,6 +123,8 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Enforce line coverage threshold
         run: |
+          LLVM_COV="$(rustc --print target-libdir)/../bin/llvm-cov" \
+          LLVM_PROFDATA="$(rustc --print target-libdir)/../bin/llvm-profdata" \
           cargo llvm-cov \
             --workspace \
             --all-features \

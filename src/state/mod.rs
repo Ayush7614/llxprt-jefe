@@ -557,7 +557,7 @@ impl AppState {
     /// @requirement REQ-TECH-003
     /// @pseudocode component-001 lines 13-33
     #[must_use]
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     pub fn apply(mut self, event: AppEvent) -> Self {
         trace!(
             event = ?event,
@@ -1055,7 +1055,7 @@ impl AppState {
 
     // Form handling methods
 
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
     fn handle_form_char(&mut self, c: char) {
         let mut refresh_work_dir = false;
 
@@ -1272,7 +1272,7 @@ impl AppState {
 
     fn delete_repository_field_at_cursor(
         fields: &mut RepositoryFormFields,
-        cursor: &mut RepositoryFormCursor,
+        cursor: &RepositoryFormCursor,
         focus: RepositoryFormFocus,
     ) {
         match focus {
@@ -1339,7 +1339,7 @@ impl AppState {
 
     fn delete_agent_field_at_cursor(
         fields: &mut AgentFormFields,
-        cursor: &mut AgentFormCursor,
+        cursor: &AgentFormCursor,
         focus: AgentFormFocus,
     ) {
         match focus {
@@ -1430,7 +1430,6 @@ impl AppState {
         let mut refresh_work_dir = false;
 
         match &mut self.modal {
-            ModalState::Search { .. } => {}
             ModalState::NewRepository {
                 fields,
                 focus,
@@ -1481,7 +1480,6 @@ impl AppState {
 
     fn handle_form_move_cursor_left(&mut self) {
         match &mut self.modal {
-            ModalState::Search { .. } => {}
             ModalState::NewRepository { focus, cursor, .. }
             | ModalState::EditRepository { focus, cursor, .. } => match focus {
                 RepositoryFormFocus::RemoteEnabled | RepositoryFormFocus::SetupEnvDefault => {}
@@ -1536,9 +1534,9 @@ impl AppState {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn handle_form_move_cursor_right(&mut self) {
         match &mut self.modal {
-            ModalState::Search { .. } => {}
             ModalState::NewRepository {
                 fields,
                 focus,

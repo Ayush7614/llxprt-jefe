@@ -354,7 +354,7 @@ pub fn handle_mode_search_key(
     }
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
     debug!(event = ?evt, "dispatching app event");
 
@@ -853,7 +853,7 @@ pub fn handle_global_shortcut_key(
     false
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)]
 pub fn handle_normal_key_event(
     app_state: &mut AppStateHandle,
     should_quit: &mut QuitHandle,

@@ -14,6 +14,8 @@ ci-check:
 		-D clippy::too_many_arguments \
 		-D clippy::type_complexity \
 		-D clippy::struct_excessive_bools
+	LLVM_COV="$$(rustc --print target-libdir)/../bin/llvm-cov" \
+	LLVM_PROFDATA="$$(rustc --print target-libdir)/../bin/llvm-profdata" \
 	cargo llvm-cov \
 		--workspace \
 		--all-features \

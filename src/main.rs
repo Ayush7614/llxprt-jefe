@@ -198,6 +198,7 @@ struct AppProps {
 
 /// Root application component that manages state and renders the UI.
 #[component]
+#[allow(clippy::cognitive_complexity)]
 fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
     let should_quit = hooks.use_state(|| false);
     let mut app_state = hooks.use_state(AppState::default);
@@ -533,6 +534,7 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
         let mut should_quit = should_quit;
         let mut help_scroll = help_scroll;
 
+        #[allow(clippy::cognitive_complexity)]
         move |event| {
             match event {
                 TerminalEvent::Resize(cols, rows) => {
