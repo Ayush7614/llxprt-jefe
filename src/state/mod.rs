@@ -615,12 +615,15 @@ impl AppState {
                         (agent.shortcut_slot == Some(slot))
                             .then_some((idx, agent.repository_id.clone()))
                     })
-                {
-                    self.remember_selected_agent_for_current_repo();
-                    self.selected_repository_index = self
+                    && let Some(target_repo_idx) = self
                         .repositories
                         .iter()
-                        .position(|repo| repo.id == target_repo_id);
+                        .position(|repo| repo.id == target_repo_id)
+                    && (!self.hide_idle_repositories
+                        || self.visible_repository_indices().contains(&target_repo_idx))
+                {
+                    self.remember_selected_agent_for_current_repo();
+                    self.selected_repository_index = Some(target_repo_idx);
                     self.selected_agent_index = Some(agent_idx);
                     self.pane_focus = PaneFocus::Agents;
                     self.terminal_focused = false;
@@ -670,30 +673,41 @@ impl AppState {
 
             // Grab mode for split view reordering
             AppEvent::EnterGrabMode => {
-                if let Some(idx) = self.selected_repository_index {
-                    self.split_grab_index = Some(idx);
-                }
+                self.split_grab_index = self.selected_repository_visible_index();
             }
             AppEvent::ExitGrabMode => {
                 self.split_grab_index = None;
             }
             AppEvent::GrabMoveUp => {
-                if let Some(grab_idx) = self.split_grab_index
-                    && grab_idx > 0
-                    && grab_idx < self.repositories.len()
+                if let Some(grab_visible_idx) = self.split_grab_index
+                    && grab_visible_idx > 0
                 {
-                    self.repositories.swap(grab_idx, grab_idx - 1);
-                    self.split_grab_index = Some(grab_idx - 1);
-                    self.selected_repository_index = Some(grab_idx - 1);
+                    let visible_repo_indices = self.visible_repository_indices();
+                    if let (Some(&current_global_idx), Some(&target_global_idx)) = (
+                        visible_repo_indices.get(grab_visible_idx),
+                        visible_repo_indices.get(grab_visible_idx - 1),
+                    ) {
+                        self.repositories
+                            .swap(current_global_idx, target_global_idx);
+                        self.split_grab_index = Some(grab_visible_idx - 1);
+                        self.selected_repository_index = Some(target_global_idx);
+                    }
                 }
             }
             AppEvent::GrabMoveDown => {
-                if let Some(grab_idx) = self.split_grab_index
-                    && grab_idx + 1 < self.repositories.len()
-                {
-                    self.repositories.swap(grab_idx, grab_idx + 1);
-                    self.split_grab_index = Some(grab_idx + 1);
-                    self.selected_repository_index = Some(grab_idx + 1);
+                if let Some(grab_visible_idx) = self.split_grab_index {
+                    let visible_repo_indices = self.visible_repository_indices();
+                    if grab_visible_idx + 1 < visible_repo_indices.len()
+                        && let (Some(&current_global_idx), Some(&target_global_idx)) = (
+                            visible_repo_indices.get(grab_visible_idx),
+                            visible_repo_indices.get(grab_visible_idx + 1),
+                        )
+                    {
+                        self.repositories
+                            .swap(current_global_idx, target_global_idx);
+                        self.split_grab_index = Some(grab_visible_idx + 1);
+                        self.selected_repository_index = Some(target_global_idx);
+                    }
                 }
             }
             AppEvent::SetSplitFilter(filter) => {

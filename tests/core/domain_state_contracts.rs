@@ -600,6 +600,53 @@ fn jump_to_agent_by_shortcut_switches_repo_and_selection() {
 }
 
 #[test]
+fn jump_to_shortcut_ignores_hidden_repository_when_filter_enabled() {
+    let mut state = AppState::default();
+    let repo_a = Repository::new(
+        RepositoryId("repo-a".into()),
+        "Repo A".into(),
+        "repo-a".into(),
+        PathBuf::from("/repo-a"),
+    );
+    let repo_b = Repository::new(
+        RepositoryId("repo-b".into()),
+        "Repo B".into(),
+        "repo-b".into(),
+        PathBuf::from("/repo-b"),
+    );
+    state.repositories = vec![repo_a.clone(), repo_b.clone()];
+
+    let mut a1 = Agent::new(
+        AgentId("a1".into()),
+        repo_a.id.clone(),
+        "A1".into(),
+        PathBuf::from("/repo-a/a1"),
+    );
+    a1.shortcut_slot = Some(1);
+    a1.status = AgentStatus::Running;
+
+    let mut b1 = Agent::new(
+        AgentId("b1".into()),
+        repo_b.id.clone(),
+        "B1".into(),
+        PathBuf::from("/repo-b/b1"),
+    );
+    b1.shortcut_slot = Some(2);
+
+    state.agents = vec![a1, b1];
+    state.hide_idle_repositories = true;
+    state.selected_repository_index = Some(0);
+    state.selected_agent_index = Some(0);
+
+    let next = state.apply(AppEvent::JumpToAgentByShortcut(2));
+
+    assert_eq!(next.selected_repository_index, Some(0));
+    assert_eq!(next.selected_agent_index, Some(0));
+    assert_eq!(next.pane_focus, PaneFocus::Repositories);
+    assert!(!next.terminal_focused);
+}
+
+#[test]
 fn repository_navigation_restores_last_selected_agent_per_repo() {
     let mut state = AppState::default();
     let repo_a = Repository::new(
