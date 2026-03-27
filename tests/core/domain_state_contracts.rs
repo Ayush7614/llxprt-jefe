@@ -170,6 +170,167 @@ fn navigate_down_at_end_stays_at_end() {
 }
 
 #[test]
+fn toggle_hide_idle_repositories_filters_to_running_repositories() {
+    let mut state = AppState::default();
+    state.repositories = vec![
+        Repository::new(
+            RepositoryId("r1".into()),
+            "R1".into(),
+            "r1".into(),
+            PathBuf::from("/r1"),
+        ),
+        Repository::new(
+            RepositoryId("r2".into()),
+            "R2".into(),
+            "r2".into(),
+            PathBuf::from("/r2"),
+        ),
+        Repository::new(
+            RepositoryId("r3".into()),
+            "R3".into(),
+            "r3".into(),
+            PathBuf::from("/r3"),
+        ),
+    ];
+    state.agents = vec![
+        Agent::new(
+            AgentId("a1".into()),
+            RepositoryId("r1".into()),
+            "Idle A1".into(),
+            PathBuf::from("/r1/a1"),
+        ),
+        {
+            let mut running = Agent::new(
+                AgentId("a2".into()),
+                RepositoryId("r2".into()),
+                "Running A2".into(),
+                PathBuf::from("/r2/a2"),
+            );
+            running.status = AgentStatus::Running;
+            running
+        },
+    ];
+    state.selected_repository_index = Some(0);
+    state.pane_focus = PaneFocus::Repositories;
+
+    let next = state.apply(AppEvent::ToggleHideIdleRepositories);
+
+    assert!(next.hide_idle_repositories);
+    assert_eq!(next.selected_repository_index, Some(1));
+    assert_eq!(
+        next.selected_repository()
+            .map(|repository| repository.id.clone()),
+        Some(RepositoryId("r2".into()))
+    );
+}
+
+#[test]
+fn repository_navigation_skips_idle_repositories_when_hidden() {
+    let mut state = AppState::default();
+    state.repositories = vec![
+        Repository::new(
+            RepositoryId("r1".into()),
+            "R1".into(),
+            "r1".into(),
+            PathBuf::from("/r1"),
+        ),
+        Repository::new(
+            RepositoryId("r2".into()),
+            "R2".into(),
+            "r2".into(),
+            PathBuf::from("/r2"),
+        ),
+        Repository::new(
+            RepositoryId("r3".into()),
+            "R3".into(),
+            "r3".into(),
+            PathBuf::from("/r3"),
+        ),
+    ];
+    state.agents = vec![
+        {
+            let mut running = Agent::new(
+                AgentId("a1".into()),
+                RepositoryId("r1".into()),
+                "Running A1".into(),
+                PathBuf::from("/r1/a1"),
+            );
+            running.status = AgentStatus::Running;
+            running
+        },
+        Agent::new(
+            AgentId("a2".into()),
+            RepositoryId("r2".into()),
+            "Idle A2".into(),
+            PathBuf::from("/r2/a2"),
+        ),
+        {
+            let mut running = Agent::new(
+                AgentId("a3".into()),
+                RepositoryId("r3".into()),
+                "Running A3".into(),
+                PathBuf::from("/r3/a3"),
+            );
+            running.status = AgentStatus::Running;
+            running
+        },
+    ];
+    state.selected_repository_index = Some(0);
+    state.pane_focus = PaneFocus::Repositories;
+
+    let next = state.apply(AppEvent::ToggleHideIdleRepositories);
+    assert!(next.hide_idle_repositories);
+
+    let next = next.apply(AppEvent::NavigateDown);
+    assert_eq!(next.selected_repository_index, Some(2));
+
+    let next = next.apply(AppEvent::NavigateUp);
+    assert_eq!(next.selected_repository_index, Some(0));
+}
+
+#[test]
+fn toggling_hide_idle_off_restores_selectable_repository() {
+    let mut state = AppState::default();
+    state.repositories = vec![
+        Repository::new(
+            RepositoryId("r1".into()),
+            "R1".into(),
+            "r1".into(),
+            PathBuf::from("/r1"),
+        ),
+        Repository::new(
+            RepositoryId("r2".into()),
+            "R2".into(),
+            "r2".into(),
+            PathBuf::from("/r2"),
+        ),
+    ];
+    state.agents = vec![
+        Agent::new(
+            AgentId("a1".into()),
+            RepositoryId("r1".into()),
+            "Idle A1".into(),
+            PathBuf::from("/r1/a1"),
+        ),
+        Agent::new(
+            AgentId("a2".into()),
+            RepositoryId("r2".into()),
+            "Idle A2".into(),
+            PathBuf::from("/r2/a2"),
+        ),
+    ];
+    state.selected_repository_index = Some(1);
+
+    let hidden = state.apply(AppEvent::ToggleHideIdleRepositories);
+    assert!(hidden.hide_idle_repositories);
+    assert_eq!(hidden.selected_repository_index, None);
+
+    let restored = hidden.apply(AppEvent::ToggleHideIdleRepositories);
+    assert!(!restored.hide_idle_repositories);
+    assert_eq!(restored.selected_repository_index, Some(0));
+}
+
+#[test]
 fn toggle_terminal_focus_sets_terminal_focused() {
     let state = AppState {
         terminal_focused: false,
@@ -182,6 +343,42 @@ fn toggle_terminal_focus_sets_terminal_focused() {
         next.terminal_focused,
         "ToggleTerminalFocus should set terminal_focused=true"
     );
+}
+
+#[test]
+fn select_repository_ignores_hidden_repository_when_filter_enabled() {
+    let mut state = AppState::default();
+    state.repositories = vec![
+        Repository::new(
+            RepositoryId("r1".into()),
+            "R1".into(),
+            "r1".into(),
+            PathBuf::from("/r1"),
+        ),
+        Repository::new(
+            RepositoryId("r2".into()),
+            "R2".into(),
+            "r2".into(),
+            PathBuf::from("/r2"),
+        ),
+    ];
+    state.agents = vec![{
+        let mut running = Agent::new(
+            AgentId("a1".into()),
+            RepositoryId("r1".into()),
+            "Running A1".into(),
+            PathBuf::from("/r1/a1"),
+        );
+        running.status = AgentStatus::Running;
+        running
+    }];
+    state.selected_repository_index = Some(0);
+
+    let filtered = state.apply(AppEvent::ToggleHideIdleRepositories);
+    assert!(filtered.hide_idle_repositories);
+
+    let attempted = filtered.apply(AppEvent::SelectRepository(1));
+    assert_eq!(attempted.selected_repository_index, Some(0));
 }
 
 #[test]
