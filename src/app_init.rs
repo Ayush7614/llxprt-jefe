@@ -228,5 +228,6 @@ pub fn restore_runtime_sessions(app_state: &mut HookState<AppState>, ctx: &Share
     if let Some(warning) = runtime_warning {
         state.warning_message = Some(warning);
     }
+
     persist_state_snapshot(ctx, &state);
 }
