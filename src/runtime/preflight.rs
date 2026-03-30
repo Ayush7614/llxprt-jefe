@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
-use crate::domain::SandboxEngine;
+use crate::domain::{PlatformCapabilities, SandboxEngine};
 
 /// A blocking issue detected before launch that requires user action.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +16,11 @@ pub enum PreflightIssue {
     },
     /// SSH agent is not running or has no identities loaded.
     SshAgentNoIdentities,
+    /// The configured sandbox engine is not supported on this platform.
+    UnsupportedEngine {
+        engine: SandboxEngine,
+        platform: &'static str,
+    },
 }
 
 /// Describes the kind of remediation the user can trigger.
@@ -28,6 +33,8 @@ pub enum PreflightAction {
     },
     /// Run `ssh-add` to load a key (the user picks the key path interactively).
     SshAdd,
+    /// Normalize the engine to Podman (unsupported platform selection).
+    SwitchToPodman,
 }
 
 impl PreflightIssue {
@@ -46,6 +53,14 @@ impl PreflightIssue {
             Self::SshAgentNoIdentities => "SSH agent has no identities loaded. Run ssh-add?\n\n\
                  [Enter] run ssh-add  |  [Esc] cancel launch"
                 .to_owned(),
+            Self::UnsupportedEngine { engine, platform } => {
+                format!(
+                    "{} is not supported on {}. The engine will be changed to Podman.\n\n\
+                     [Enter] switch to Podman  |  [Esc] cancel launch",
+                    engine.label(),
+                    platform,
+                )
+            }
         }
     }
 
@@ -57,6 +72,9 @@ impl PreflightIssue {
                 format!("{} not running", engine.label())
             }
             Self::SshAgentNoIdentities => "SSH agent".to_owned(),
+            Self::UnsupportedEngine { engine, .. } => {
+                format!("{} unsupported", engine.label())
+            }
         }
     }
 
@@ -76,6 +94,7 @@ impl PreflightIssue {
                 }
             }
             Self::SshAgentNoIdentities => PreflightAction::SshAdd,
+            Self::UnsupportedEngine { .. } => PreflightAction::SwitchToPodman,
         }
     }
 }
@@ -132,9 +151,18 @@ fn ssh_agent_has_identities() -> bool {
 /// Run all preflight checks for a sandbox-enabled agent launch.
 ///
 /// Returns the first blocking issue found, if any.  The checks are ordered
-/// so that the most fundamental problem (runtime not running) surfaces first.
+/// so that the most fundamental problem (unsupported engine, then runtime not
+/// running) surfaces first.
 #[must_use]
 pub fn sandbox_preflight(engine: SandboxEngine) -> Option<PreflightIssue> {
+    let caps = PlatformCapabilities::current();
+    if !caps.is_engine_supported(engine) {
+        return Some(PreflightIssue::UnsupportedEngine {
+            engine,
+            platform: caps.platform_label(),
+        });
+    }
+
     if !container_runtime_is_ready(engine) {
         let start_hint = match engine {
             SandboxEngine::Podman => "podman machine start".to_owned(),
@@ -154,6 +182,7 @@ pub fn sandbox_preflight(engine: SandboxEngine) -> Option<PreflightIssue> {
 /// Execute the remediation action. Returns Ok(()) on success or an error message.
 pub fn execute_preflight_action(action: &PreflightAction) -> Result<(), String> {
     match action {
+        PreflightAction::SwitchToPodman => Ok(()),
         PreflightAction::StartContainerRuntime { command, .. } => {
             if command.is_empty() {
                 return Ok(());
@@ -202,6 +231,20 @@ pub fn execute_preflight_action(action: &PreflightAction) -> Result<(), String> 
     }
 }
 
+/// Build a preflight diagnostic summary of supported engines for the current platform.
+///
+/// Intended for startup logging or debug output, not for blocking the user.
+#[must_use]
+pub fn platform_engine_diagnostic() -> String {
+    let caps = PlatformCapabilities::current();
+    let supported: Vec<&str> = caps.supported_engines().iter().map(|e| e.label()).collect();
+    format!(
+        "Platform: {} | Supported sandbox engines: {}",
+        caps.platform_label(),
+        supported.join(", ")
+    )
+}
+
 /// Return a user-facing warning when sandbox SSH forwarding is likely to fail.
 ///
 /// This check is intentionally conservative and non-fatal: it surfaces common
@@ -248,18 +291,24 @@ mod tests {
     }
 
     #[test]
-    fn seatbelt_sandbox_preflight_returns_none() {
-        // Seatbelt doesn't require a daemon, so the container check always passes.
-        // SSH agent check may or may not pass depending on CI environment, but
-        // the container check specifically should not block.
+    fn seatbelt_sandbox_preflight_returns_none_on_macos() {
+        // On macOS, Seatbelt is supported and doesn't require a daemon.
+        // On non-macOS, it correctly reports UnsupportedEngine instead.
         let issue = sandbox_preflight(SandboxEngine::Seatbelt);
-        assert!(
-            !matches!(
-                issue,
-                Some(PreflightIssue::ContainerRuntimeNotRunning { .. })
-            ),
-            "seatbelt should never report container runtime not running"
-        );
+        if cfg!(target_os = "macos") {
+            assert!(
+                !matches!(
+                    issue,
+                    Some(PreflightIssue::ContainerRuntimeNotRunning { .. })
+                ),
+                "seatbelt should never report container runtime not running on macOS"
+            );
+        } else {
+            assert!(
+                matches!(issue, Some(PreflightIssue::UnsupportedEngine { .. })),
+                "seatbelt should report unsupported engine on non-macOS"
+            );
+        }
     }
 
     #[test]
@@ -272,6 +321,13 @@ mod tests {
         assert!(!issue.prompt_title().is_empty());
 
         let issue = PreflightIssue::SshAgentNoIdentities;
+        assert!(!issue.prompt_message().is_empty());
+        assert!(!issue.prompt_title().is_empty());
+
+        let issue = PreflightIssue::UnsupportedEngine {
+            engine: SandboxEngine::Seatbelt,
+            platform: "Linux",
+        };
         assert!(!issue.prompt_message().is_empty());
         assert!(!issue.prompt_title().is_empty());
     }
@@ -293,5 +349,42 @@ mod tests {
 
         let issue = PreflightIssue::SshAgentNoIdentities;
         assert!(matches!(issue.action(), PreflightAction::SshAdd));
+
+        let issue = PreflightIssue::UnsupportedEngine {
+            engine: SandboxEngine::Seatbelt,
+            platform: "Linux",
+        };
+        assert!(matches!(issue.action(), PreflightAction::SwitchToPodman));
+    }
+
+    #[test]
+    fn unsupported_engine_prompt_mentions_engine_and_platform() {
+        let issue = PreflightIssue::UnsupportedEngine {
+            engine: SandboxEngine::Seatbelt,
+            platform: "Linux",
+        };
+        let msg = issue.prompt_message();
+        assert!(msg.contains("Seatbelt"), "should mention engine name");
+        assert!(msg.contains("Linux"), "should mention platform");
+        assert!(msg.contains("Podman"), "should mention fallback");
+    }
+
+    #[test]
+    fn execute_switch_to_podman_action_succeeds() {
+        let result = execute_preflight_action(&PreflightAction::SwitchToPodman);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn platform_engine_diagnostic_contains_platform_and_engines() {
+        let diag = platform_engine_diagnostic();
+        assert!(diag.contains("Platform:"), "should contain platform label");
+        assert!(
+            diag.contains("Supported sandbox engines:"),
+            "should contain engine list"
+        );
+        // Podman and Docker should always appear.
+        assert!(diag.contains("Podman"));
+        assert!(diag.contains("Docker"));
     }
 }
