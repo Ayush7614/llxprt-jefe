@@ -21,7 +21,6 @@ pub(super) fn handle_preflight_prompt_enter(
             if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
                 agent.sandbox_engine = normalized_engine;
             }
-            persist_state_snapshot(ctx, &state);
         } else {
             let mut state = app_state.write();
             state.modal = ModalState::None;
