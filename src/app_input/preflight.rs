@@ -31,6 +31,11 @@ pub(super) fn handle_preflight_prompt_enter(
             persist_state_snapshot(ctx, &state);
             return;
         }
+    } else if matches!(action, PreflightAction::NoRemediation) {
+        let mut state = app_state.write();
+        state.modal = ModalState::None;
+        persist_state_snapshot(ctx, &state);
+        return;
     } else if let Err(e) = execute_preflight_action(&action) {
         let mut state = app_state.write();
         state.modal = ModalState::None;

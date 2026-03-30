@@ -36,6 +36,8 @@ pub enum PreflightAction {
     SshAdd,
     /// Normalize the engine to a supported runtime.
     SwitchEngine(SandboxEngine),
+    /// No automated remediation is possible; caller should guide user to cancel launch.
+    NoRemediation,
 }
 
 impl PreflightIssue {
@@ -111,9 +113,7 @@ impl PreflightIssue {
                 fallback: Some(target),
                 ..
             } => PreflightAction::SwitchEngine(*target),
-            Self::UnsupportedEngine { fallback: None, .. } => {
-                PreflightAction::SwitchEngine(SandboxEngine::Podman)
-            }
+            Self::UnsupportedEngine { fallback: None, .. } => PreflightAction::NoRemediation,
         }
     }
 }
@@ -206,6 +206,7 @@ pub fn execute_preflight_action(action: &PreflightAction) -> Result<(), String> 
             "SwitchEngine requires caller state updates; handle this action at the call site."
                 .to_owned(),
         ),
+        PreflightAction::NoRemediation => Ok(()),
         PreflightAction::StartContainerRuntime { command, .. } => {
             if command.is_empty() {
                 return Ok(());
@@ -387,6 +388,13 @@ mod tests {
             issue.action(),
             PreflightAction::SwitchEngine(SandboxEngine::Podman)
         ));
+
+        let issue = PreflightIssue::UnsupportedEngine {
+            engine: SandboxEngine::Seatbelt,
+            platform: "Windows",
+            fallback: None,
+        };
+        assert!(matches!(issue.action(), PreflightAction::NoRemediation));
     }
 
     #[test]
