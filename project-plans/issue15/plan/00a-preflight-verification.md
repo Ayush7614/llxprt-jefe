@@ -64,7 +64,7 @@ gh auth status
 - [ ] `src/state/mod.rs` exists
 - [ ] `src/domain/mod.rs` exists
 - [ ] `src/input.rs` exists
-- [ ] `src/app_input.rs` exists
+- [ ] `src/app_input/mod.rs` exists
 - [ ] `src/persistence/mod.rs` exists
 - [ ] `src/lib.rs` exists
 - [ ] `src/ui/components/` directory exists
@@ -75,7 +75,7 @@ gh auth status
 test -f src/state/mod.rs && echo "state/mod.rs: OK" || echo "MISSING: state/mod.rs"
 test -f src/domain/mod.rs && echo "domain/mod.rs: OK" || echo "MISSING: domain/mod.rs"
 test -f src/input.rs && echo "input.rs: OK" || echo "MISSING: input.rs"
-test -f src/app_input.rs && echo "app_input.rs: OK" || echo "MISSING: app_input.rs"
+test -f src/app_input/mod.rs && echo "app_input/mod.rs: OK" || echo "MISSING: app_input/mod.rs"
 test -f src/persistence/mod.rs && echo "persistence/mod.rs: OK" || echo "MISSING: persistence/mod.rs"
 test -f src/lib.rs && echo "lib.rs: OK" || echo "MISSING: lib.rs"
 test -d src/ui/components && echo "ui/components/: OK" || echo "MISSING: ui/components/"
@@ -89,21 +89,21 @@ Verify exact types, function signatures, and enum variants in target files.
 
 #### 4a) `src/state/mod.rs` — Enum and Struct Signatures
 
-- [ ] `ScreenMode` enum exists at ~L228 with exactly: `Dashboard` (default), `Split`
-- [ ] `PaneFocus` enum exists at ~L236 with exactly: `Repositories` (default), `Agents`, `Terminal`
-- [ ] `AppEvent` enum exists at ~L276 with variants including: `NavigateUp`, `NavigateDown`, `NavigateLeft`, `NavigateRight`, `SelectRepository(usize)`, `SelectAgent(usize)`, `CyclePaneFocus`, `ToggleTerminalFocus`, `EnterSplitMode`, `ExitSplitMode`, `OpenHelp`, `OpenSearch`, `Quit`
-- [ ] `AppState` struct exists at ~L246 with fields: `repositories: Vec<Repository>`, `agents: Vec<Agent>`, `selected_repository_index: Option<usize>`, `selected_agent_index: Option<usize>`, `screen_mode: ScreenMode`, `pane_focus: PaneFocus`, `terminal_focused: bool`, `modal: ModalState`
+- [ ] `ScreenMode` enum exists at ~L221 (in src/state/types.rs) with exactly: `Dashboard` (default), `Split`
+- [ ] `PaneFocus` enum exists at ~L229 (in src/state/types.rs) with exactly: `Repositories` (default), `Agents`, `Terminal`
+- [ ] `AppEvent` enum exists at ~L268 (in src/state/types.rs) with variants including: `NavigateUp`, `NavigateDown`, `NavigateLeft`, `NavigateRight`, `SelectRepository(usize)`, `SelectAgent(usize)`, `CyclePaneFocus`, `ToggleTerminalFocus`, `EnterSplitMode`, `ExitSplitMode`, `OpenHelp`, `OpenSearch`, `Quit`
+- [ ] `AppState` struct exists at ~L238 (in src/state/types.rs) with fields: `repositories: Vec<Repository>`, `agents: Vec<Agent>`, `selected_repository_index: Option<usize>`, `selected_agent_index: Option<usize>`, `screen_mode: ScreenMode`, `pane_focus: PaneFocus`, `terminal_focused: bool`, `modal: ModalState`
 - [ ] `ModalState` enum exists at ~L171 with variants: `None` (default), `Help`, `Search { query }`, `NewRepository { fields, focus, cursor }`, `EditRepository { ... }`, `ConfirmDeleteRepository { ... }`, `NewAgent { ... }`, `EditAgent { ... }`, `ConfirmDeleteAgent { ... }`, `ConfirmKillAgent { ... }`, `PreflightPrompt { ... }`
 - [ ] `AppState::apply()` method exists and is the event reducer
 
 ```bash
 # Verify exact ScreenMode variants
 echo "--- ScreenMode ---"
-grep -A5 "pub enum ScreenMode" src/state/mod.rs
+grep -A5 "pub enum ScreenMode" src/state/types.rs
 
 # Verify exact PaneFocus variants
 echo "--- PaneFocus ---"
-grep -A6 "pub enum PaneFocus" src/state/mod.rs
+grep -A6 "pub enum PaneFocus" src/state/types.rs
 
 # Verify AppState struct fields
 echo "--- AppState fields ---"
@@ -111,7 +111,7 @@ grep -A20 "pub struct AppState" src/state/mod.rs
 
 # Verify AppEvent exists and sample variants
 echo "--- AppEvent sample ---"
-grep -n "pub enum AppEvent" src/state/mod.rs
+grep -n "pub enum AppEvent" src/state/types.rs
 grep -c "NavigateUp\|NavigateDown\|CyclePaneFocus\|EnterSplitMode\|ExitSplitMode\|OpenHelp\|Quit" src/state/mod.rs
 
 # Verify ModalState variants
@@ -147,49 +147,49 @@ echo "--- Normal fallback ---"
 grep -A3 "InputMode::Normal" src/input.rs
 ```
 
-#### 4c) `src/app_input.rs` — Key Dispatch Signatures
+#### 4c) `src/app_input/mod.rs` — Key Dispatch Signatures
 
-- [ ] `fn handle_normal_key_event(app_state: &mut AppStateHandle, should_quit: &mut QuitHandle, ctx: &SharedContext, key_event: &KeyEvent, screen_mode: ScreenMode) -> Option<AppEvent>` exists at ~L858
+- [ ] `fn handle_normal_key_event` — L61
 - [ ] `fn dispatch_app_event(...)` exists and is the event dispatch entry point
 - [ ] Key routing for `i` key is NOT currently bound (available for issues mode)
-- [ ] Key routing for `a`/`A` currently sets `pane_focus = PaneFocus::Agents` (L971-975)
-- [ ] Key routing for `s`/`S` currently maps to `EnterSplitMode` when `screen_mode == Dashboard` (L945-947)
-- [ ] Key routing for `Ctrl-d` currently maps to `OpenDeleteAgent`/`OpenDeleteRepository` (L926-934)
+- [ ] Key routing for `a`/`A` currently sets `pane_focus = PaneFocus::Agents` (L174)
+- [ ] Key routing for `s`/`S` currently maps to `EnterSplitMode` when `screen_mode == Dashboard` (L148-150)
+- [ ] Key routing for `Ctrl-d` currently maps to `OpenDeleteAgent`/`OpenDeleteRepository` (L129-137)
 - [ ] Key routing for `Ctrl-k` currently maps to `KillAgent` (L937-939)
 - [ ] Key routing for `l`/`L` currently maps to `RelaunchAgent` (L942)
 
 ```bash
 # Verify handle_normal_key_event signature
 echo "--- handle_normal_key_event ---"
-grep -n "pub fn handle_normal_key_event" src/app_input.rs
+grep -n "pub fn handle_normal_key_event" src/app_input/normal.rs
 
 # Verify dispatch_app_event
 echo "--- dispatch_app_event ---"
-grep -n "fn dispatch_app_event" src/app_input.rs
+grep -n "fn dispatch_app_event" src/app_input/mod.rs
 
 # Verify 'i' key is NOT currently bound
 echo "--- 'i' key check ---"
-grep -n "Char('i'" src/app_input.rs || echo "OK: 'i' not bound (available)"
+grep -rn "Char('i'" src/app_input/ || echo "OK: 'i' not bound (available)"
 
 # Verify current 'a' binding (focus agents)
 echo "--- 'a' key binding ---"
-sed -n '971,975p' src/app_input.rs
+sed -n '971,975p' src/app_input/mod.rs
 
 # Verify current 's' binding (split mode)
 echo "--- 's' key binding ---"
-sed -n '945,948p' src/app_input.rs
+sed -n '945,948p' src/app_input/mod.rs
 
 # Verify Ctrl-d binding (delete)
 echo "--- Ctrl-d binding ---"
-sed -n '926,934p' src/app_input.rs
+sed -n '926,934p' src/app_input/mod.rs
 
 # Verify Ctrl-k binding (kill)
 echo "--- Ctrl-k binding ---"
-sed -n '937,939p' src/app_input.rs
+sed -n '937,939p' src/app_input/mod.rs
 
 # Verify 'l' binding (relaunch)
 echo "--- 'l' binding ---"
-sed -n '942,942p' src/app_input.rs
+sed -n '942,942p' src/app_input/mod.rs
 ```
 
 #### 4d) `src/domain/mod.rs` — Repository Struct
@@ -363,7 +363,7 @@ This section lists the actual function signatures, enum variants, and struct fie
 
 ### `src/state/mod.rs` — Verified Signatures
 
-#### `ScreenMode` — L228–233
+#### `ScreenMode` — L221–225 (in src/state/types.rs)
 
 ```rust
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -376,7 +376,7 @@ pub enum ScreenMode {
 
 Verification command: `sed -n '228,234p' src/state/mod.rs`
 
-#### `PaneFocus` — L236–241
+#### `PaneFocus` — L229–234 (in src/state/types.rs)
 
 ```rust
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -390,7 +390,7 @@ pub enum PaneFocus {
 
 Verification command: `sed -n '236,243p' src/state/mod.rs`
 
-#### `AppState` struct — L246–272
+#### `AppState` struct — L238–264 (in src/state/types.rs)
 
 ```rust
 #[derive(Debug, Default, Clone)]
@@ -425,7 +425,7 @@ pub struct AppState {
 
 Verification command: `sed -n '246,275p' src/state/mod.rs`
 
-#### `AppEvent` enum — L276–346
+#### `AppEvent` enum — L268–338
 
 All variants present at plan authoring time (verified):
 
@@ -454,9 +454,9 @@ Quit, ClearError, ClearWarning,
 
 All of these are PRESERVED. New issues-mode variants are appended.
 
-Verification command: `sed -n '276,346p' src/state/mod.rs`
+Verification command: `sed -n '268,338p' src/state/types.rs`
 
-#### `AppState::apply()` — L561
+#### `AppState::apply()` — L233
 
 ```rust
 pub fn apply(mut self, event: AppEvent) -> Self {
@@ -466,7 +466,7 @@ Full signature: takes ownership of `self` and the event, returns new `Self`. The
 
 Verification command: `grep -n "pub fn apply" src/state/mod.rs`
 
-### `src/app_input.rs` — Verified Signatures
+### `src/app_input/mod.rs` — Verified Signatures
 
 #### `dispatch_app_event` — L359
 
@@ -479,9 +479,9 @@ Parameters:
 - `ctx: &SharedContext` — shared runtime context (terminal handles, etc.)
 - `evt: AppEvent` — the event to dispatch
 
-Verification command: `sed -n '359,361p' src/app_input.rs`
+Verification command: `sed -n '359,361p' src/app_input/mod.rs`
 
-#### `handle_normal_key_event` — L858–864
+#### `handle_normal_key_event` — L61–864
 
 ```rust
 pub fn handle_normal_key_event(
@@ -504,31 +504,31 @@ Returns: `Option<AppEvent>` — the event to dispatch, or `None` if key was cons
 
 The new `handle_issues_mode_key()` function will have the same parameter shape. It will be called when `screen_mode == ScreenMode::DashboardIssues` before the existing handler logic runs, so the `ScreenMode::Dashboard` and `ScreenMode::Split` paths remain unmodified.
 
-Verification command: `sed -n '858,865p' src/app_input.rs`
+Verification command: `sed -n '858,865p' src/app_input/mod.rs`
 
 #### Key bindings currently occupying relevant keys (verified in `handle_normal_key_event`):
 
 | Key | Current behavior | Source line(s) | Plan action |
 |-----|-----------------|----------------|-------------|
-| `i` / `I` | **Not bound** — `grep -n "Char('i'" src/app_input.rs` returns no match | — | Bind to `EnterIssuesMode` |
-| `a` / `A` | Sets `pane_focus = PaneFocus::Agents` directly (no event emitted) | ~L971–975 | Suppress / redirect to `ExitIssuesMode` when in `DashboardIssues` |
-| `s` / `S` | `EnterSplitMode` when `screen_mode == Dashboard` | ~L945 | Explicit no-op when `screen_mode == DashboardIssues` |
-| `Esc` | `ExitSplitMode` when `screen_mode == Split` | ~L948 | In issues mode: 6-level precedence chain (component-001 L115–127) |
-| `Ctrl-d` | `OpenDeleteAgent` / `OpenDeleteRepository` | ~L926–934 | Suppress (no-op) in issues mode |
+| `i` / `I` | **Not bound** — `grep -rn "Char('i'" src/app_input/` returns no match | — | Bind to `EnterIssuesMode` |
+| `a` / `A` | Sets `pane_focus = PaneFocus::Agents` directly (no event emitted) | ~L174 | Suppress / redirect to `ExitIssuesMode` when in `DashboardIssues` |
+| `s` / `S` | `EnterSplitMode` when `screen_mode == Dashboard` | ~L148 | Explicit no-op when `screen_mode == DashboardIssues` |
+| `Esc` | `ExitSplitMode` when `screen_mode == Split` | ~L151 | In issues mode: 6-level precedence chain (component-001 L115–127) |
+| `Ctrl-d` | `OpenDeleteAgent` / `OpenDeleteRepository` | ~L129–934 | Suppress (no-op) in issues mode |
 | `Ctrl-k` | `KillAgent` | ~L937–939 | Suppress (no-op) in issues mode |
-| `l` / `L` | `RelaunchAgent` | ~L942 | Suppress (no-op) in issues mode |
-| `r` / `R` | Sets `pane_focus = PaneFocus::Repositories` directly | ~L967–970 | Suppress in issues mode (`r` → inline reply; focus-repo not applicable) |
+| `l` / `L` | `RelaunchAgent` | ~L145 | Suppress (no-op) in issues mode |
+| `r` / `R` | Sets `pane_focus = PaneFocus::Repositories` directly | ~L168–173 | Suppress in issues mode (`r` → inline reply; focus-repo not applicable) |
 
 Verification commands:
 ```bash
-sed -n '926,950p' src/app_input.rs    # Ctrl-d, Ctrl-k, l, s bindings
-sed -n '967,980p' src/app_input.rs    # r, a pane-focus bindings
-grep -n "Char('i'" src/app_input.rs   # confirm 'i' unbound
+sed -n '926,950p' src/app_input/mod.rs    # Ctrl-d, Ctrl-k, l, s bindings
+sed -n '967,980p' src/app_input/mod.rs    # r, a pane-focus bindings
+grep -rn "Char('i'" src/app_input/   # confirm 'i' unbound
 ```
 
 ### `src/domain/mod.rs` — Verified Signatures
 
-#### `Repository` struct — L103–113
+#### `Repository` — L196–206
 
 ```rust
 /// A repository is a named codebase container.
@@ -560,13 +560,13 @@ Verification command: `sed -n '101,115p' src/domain/mod.rs`
 | Identifier | Kind | File | Line | Plan Dependency |
 |-----------|------|------|------|----------------|
 | `ScreenMode::Dashboard` | Enum variant | `src/state/mod.rs` | L231 | Default preserved; issues mode adds `DashboardIssues` alongside |
-| `ScreenMode::Split` | Enum variant | `src/state/mod.rs` | L232 | Preserved; suppression guard `screen_mode == Dashboard` at L945 still fires correctly |
+| `ScreenMode::Split ... L224 in src/state/types.rs | Preserved; suppression guard `screen_mode == Dashboard` at L148 still fires correctly |
 | `PaneFocus::Repositories` | Enum variant | `src/state/mod.rs` | L239 | Preserved; issues mode uses `IssueFocus` instead |
 | `PaneFocus::Agents` | Enum variant | `src/state/mod.rs` | L240 | Preserved; `a` key redirected only when `screen_mode == DashboardIssues` |
 | `PaneFocus::Terminal` | Enum variant | `src/state/mod.rs` | L241 | Preserved; unaffected by issues mode |
-| `AppState` struct | Struct | `src/state/mod.rs` | L246 | Gains `issues_state: IssuesState` field |
-| `AppState::apply()` | Method | `src/state/mod.rs` | L561 | Issues events handled in new `match` arms added here |
-| `AppEvent` (all existing variants) | Enum variants | `src/state/mod.rs` | L276–346 | All preserved; new issues variants appended |
-| `dispatch_app_event(app_state, ctx, evt)` | Function | `src/app_input.rs` | L359 | Signature unchanged; issues events flow through this |
-| `handle_normal_key_event(app_state, should_quit, ctx, key_event, screen_mode)` | Function | `src/app_input.rs` | L858 | Gains issues-mode branch; existing arms untouched |
-| `Repository` struct (all existing fields) | Struct | `src/domain/mod.rs` | L103–113 | All preserved; `issue_base_prompt: String` added with `#[serde(default)]` |
+| `AppState` — `src/state/types.rs` L238 | Gains `issues_state: IssuesState` field |
+| `AppState::apply()` — L233 | Issues events handled in new `match` arms added here |
+| `AppEvent` — `src/state/types.rs` L268–346 | All preserved; new issues variants appended |
+| `dispatch_app_event(app_state, ctx, evt)` | Function | `src/app_input/mod.rs` | L359 | Signature unchanged; issues events flow through this |
+| `handle_normal_key_event` — L61 | Gains issues-mode branch; existing arms untouched |
+| `Repository` — L196–206 | All preserved; `issue_base_prompt: String` added with `#[serde(default)]` |

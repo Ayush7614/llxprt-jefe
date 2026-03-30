@@ -64,7 +64,7 @@ The specification uses logical role names that map to concrete code constructs a
 
 ## Baseline-to-Target Enum Evolution
 
-### `ScreenMode` (src/state/mod.rs L228-233)
+### `ScreenMode` (src/state/types.rs L221-225)
 
 ```
 BASELINE (current):              TARGET (after plan):
@@ -83,7 +83,7 @@ BASELINE (current):              TARGET (after plan):
 - `DashboardIssues` is added as a new variant for issues mode.
 - **All existing `match ScreenMode` arms must be updated** to handle `DashboardIssues`.
 
-### `PaneFocus` (src/state/mod.rs L236-242)
+### `PaneFocus` (src/state/types.rs L229-234)
 
 ```
 BASELINE (current):              TARGET (after plan):
@@ -134,7 +134,7 @@ BASELINE (current):              TARGET (after plan):
 └──────────────────────┘         └──────────────────────┘
 ```
 
-### `AppEvent` (src/state/mod.rs L276-346)
+### `AppEvent` (src/state/types.rs L268-338)
 
 All existing variants are **PRESERVED**. New issue-specific variants are **added**:
 
@@ -166,7 +166,7 @@ NEW AppEvent variants (added, not replacing anything):
   SendToAgentCompleted, SendToAgentFailed { ... },
 ```
 
-### `AppState` (src/state/mod.rs L246-272)
+### `AppState` (src/state/types.rs L238-264)
 
 Existing fields are **PRESERVED**. New field added:
 
@@ -175,7 +175,7 @@ NEW field (added):
   pub issues_state: IssuesState,   ← aggregates all issues-mode state
 ```
 
-### `ModalState` (src/state/mod.rs L171-225)
+### `ModalState` (src/state/types.rs L161-217)
 
 **NOT modified**. Issues mode uses inline controls and overlays tracked in `IssuesState`, not `ModalState`.
 
@@ -193,7 +193,7 @@ NEW field (added):
 
 1. **Agents mode**: `ScreenMode::Dashboard` is unchanged. All existing `match` arms continue to work. `PaneFocus` cycling between `Repositories`/`Agents`/`Terminal` is untouched.
 2. **Split mode**: `ScreenMode::Split` is unchanged. `s`/`S` entry and `Esc` exit continue to work when NOT in issues mode (issues mode suppresses `s` key).
-3. **Key routing**: Existing `handle_normal_key_event()` (L858 in app_input.rs) handles `ScreenMode::Dashboard` and `ScreenMode::Split`. A new branch dispatches `ScreenMode::DashboardIssues` to a new `handle_issues_mode_key()` function BEFORE the existing handler, so existing code paths are not modified.
+3. **Key routing**: Existing `handle_normal_key_event()` (L61 in src/app_input/normal.rs) handles `ScreenMode::Dashboard` and `ScreenMode::Split`. A new branch dispatches `ScreenMode::DashboardIssues` to a new `handle_issues_mode_key()` function BEFORE the existing handler, so existing code paths are not modified.
 4. **Persistence**: `issue_base_prompt` uses `#[serde(default)]` so existing JSON deserializes cleanly.
 
 ## REQ→Phase→Pseudocode Traceability Matrix
@@ -227,14 +227,35 @@ NEW field (added):
 
 ## Codebase Integration Points (Verified Against Source Tree)
 
+### Structural Note: Module Split Pattern
+
+The codebase uses a split-module pattern. Implementation must follow these conventions:
+
+- **Type definitions** (`ScreenMode`, `PaneFocus`, `AppEvent`, `AppState`, `ModalState`, form structs) → `src/state/types.rs` (re-exported via `pub use types::*` in `src/state/mod.rs`)
+- **`AppState::apply()` match arms** → `src/state/mod.rs` (L233)
+- **Form operations** → `src/state/form_ops.rs`
+- **Key routing** → `src/app_input/` directory:
+  - `mod.rs` — dispatch, shared utilities, module declarations
+  - `normal.rs` — normal-mode key handler (`handle_normal_key_event` at L61)
+  - `preflight.rs` — preflight prompt handler
+  - **NEW: `issues.rs`** — issues-mode key handler (to be created, following the existing submodule pattern)
+- **App initialization** → `src/app_init.rs` (extracted from `main.rs`)
+- **`AppContext`** → `src/main.rs` L99 (struct definition); init in `src/app_init.rs`
+
 The following file paths are confirmed to exist in the source tree at plan creation time:
 
 | Source File | Confirmed | Integration |
 |-------------|-----------|-------------|
-| `src/state/mod.rs` | [OK] | Contains `ScreenMode` (L229), `PaneFocus` (L237), `AppEvent` (L276), `AppState` (L246) |
-| `src/domain/mod.rs` | [OK] | Contains `Repository` (L103), `RepositoryId`, `AgentId`, `Agent` |
+| `src/state/mod.rs` | [OK] | Contains `AppState::apply()` (L233); re-exports all types from `types.rs` |
+| `src/domain/mod.rs` | [OK] | Contains `Repository` (L196), `RepositoryId`, `AgentId`, `Agent` |
 | `src/input.rs` | [OK] | Contains `InputMode` enum (L9), `input_mode_for_state()` (L30), `route_search_key()` (L54) |
-| `src/app_input.rs` | [OK] | Contains `dispatch_app_event()` (L359), `handle_normal_key_event()` (L858) |
+| `src/app_input/mod.rs` | [OK] | Contains `dispatch_app_event()` (L359); delegates to `normal.rs` and `preflight.rs` |
+| `src/app_input/normal.rs` | [OK] | Contains `handle_normal_key_event()` (L61) — all normal-mode key bindings |
+| `src/app_input/preflight.rs` | [OK] | Contains `handle_preflight_prompt_enter()` (L8) |
+| `src/state/types.rs` | [OK] | Contains `ScreenMode` (L221), `PaneFocus` (L229), `AppEvent` (L268), `AppState` (L238), `ModalState` (L161) — re-exported via `src/state/mod.rs` |
+| `src/state/form_ops.rs` | [OK] | Contains form field input handling (951 lines) — `RepositoryFormFields`/cursor ops |
+| `src/state/util.rs` | [OK] | Contains state utility functions |
+| `src/app_init.rs` | [OK] | App initialization logic extracted from main.rs |
 | `src/persistence/mod.rs` | [OK] | Contains `State` struct with `repositories: Vec<Repository>` |
 | `src/lib.rs` | [OK] | Module declarations; currently has `domain`, `input`, `logging`, `persistence`, `runtime`, `state`, `theme`, `ui` |
 | `src/main.rs` | [OK] | Binary crate entry point, imports from `jefe::state`, uses `AppStateHandle` and `SharedContext` |
@@ -261,7 +282,8 @@ The following file paths are confirmed to exist in the source tree at plan creat
 
 ### Existing Callers
 - `src/main.rs` — app bootstrap, event loop, terminal event dispatch; uses `SharedContext` (not `AppContext`)
-- `src/app_input.rs` — key routing via `handle_normal_key_event()` (L858) and event dispatch via `dispatch_app_event()` (L359)
+- `src/app_input/normal.rs` — key routing via `handle_normal_key_event()` (L61)
+- `src/app_input/mod.rs` — event dispatch via `dispatch_app_event()` (L359)
 - `src/input.rs` — `input_mode_for_state()` resolution; currently returns `Normal`/`TerminalCapture`/`Help`/`Search`/`Form`/`Confirm`
 - `src/state/mod.rs` — `AppState::apply()` event reducer, `ScreenMode` (`Dashboard`/`Split`), `PaneFocus` (`Repositories`/`Agents`/`Terminal`)
 - `src/domain/mod.rs` — entity types: `Repository` { id, name, slug, base_dir, default_profile, remote, agent_ids }
@@ -274,7 +296,7 @@ The following file paths are confirmed to exist in the source tree at plan creat
 
 This subsection names the exact existing functions and their verified line numbers that form the dispatch chain. Every implementation phase that touches key routing or event handling MUST integrate with these functions — not introduce parallel paths.
 
-#### `handle_normal_key_event` — `src/app_input.rs` L858
+#### `handle_normal_key_event` — `src/app_input/normal.rs` L61
 
 ```
 pub fn handle_normal_key_event(key: KeyEvent, state: &AppState, ctx: &SharedContext) -> Vec<AppEvent>
@@ -283,9 +305,10 @@ pub fn handle_normal_key_event(key: KeyEvent, state: &AppState, ctx: &SharedCont
 - **Role**: Top-level entry point for all keyboard events when `InputMode::Normal` is active. Receives the raw `KeyEvent` and the current `AppState`, and returns a list of `AppEvent`s to dispatch.
 - **Current behavior**: Checks `state.screen_mode` and routes to per-mode handlers. Currently handles `ScreenMode::Dashboard` and `ScreenMode::Split`.
 - **Integration point for Issues Mode**: A new guard `if state.screen_mode == ScreenMode::DashboardIssues` is added **before** the existing `Dashboard`/`Split` routing. When matched, it calls the new `handle_issues_mode_key()` function and returns early. The existing routing is never reached when in issues mode, preserving all existing behavior exactly.
-- **Verification**: `grep -n "handle_normal_key_event" src/app_input.rs` must show exactly one `pub fn` definition at L858. Any issues-mode routing added here must not alter the return path for `Dashboard` or `Split` modes.
+- **Module pattern**: Following the existing split (`normal.rs`, `preflight.rs`), the new issues mode handler should live in a new `src/app_input/issues.rs` submodule, declared in `src/app_input/mod.rs`.
+- **Verification**: `grep -n "handle_normal_key_event" src/app_input/normal.rs` must show at L61. Any issues-mode routing added here must not alter the return path for `Dashboard` or `Split` modes.
 
-#### `dispatch_app_event` — `src/app_input.rs` L359
+#### `dispatch_app_event` — `src/app_input/mod.rs` L359
 
 ```
 pub fn dispatch_app_event(event: AppEvent, state: &AppState, ctx: &SharedContext) -> Vec<AppEvent>
@@ -294,9 +317,9 @@ pub fn dispatch_app_event(event: AppEvent, state: &AppState, ctx: &SharedContext
 - **Role**: Synchronous event dispatch function. Receives a single `AppEvent`, applies any side-effects (I/O, async task spawning), and returns zero or more follow-up events to re-dispatch.
 - **Current behavior**: Matches on `AppEvent` variants to perform I/O (agent launch, file system ops) or emit chained events.
 - **Integration point for Issues Mode**: New `AppEvent` variants (`EnterIssuesMode`, `IssueListLoaded`, `CommentCreated`, etc.) are added as new match arms in this function. The new arms call `GhClient` methods (synchronously or by spawning background tasks) and emit follow-up events. No existing arms are modified.
-- **Verification**: `grep -n "dispatch_app_event" src/app_input.rs` must show exactly one `pub fn` definition at L359. New issues-mode arms must be additive (no modification of existing arms).
+- **Verification**: `grep -n "dispatch_app_event" src/app_input/mod.rs` must show exactly one `pub fn` definition at L359. New issues-mode arms must be additive (no modification of existing arms).
 
-#### `AppState::apply` — `src/state/mod.rs` L561
+#### `AppState::apply` — `src/state/mod.rs` L233
 
 ```
 pub fn apply(self, event: AppEvent) -> AppState
@@ -305,7 +328,7 @@ pub fn apply(self, event: AppEvent) -> AppState
 - **Role**: Pure state reducer. Takes the current `AppState` and an `AppEvent`, returns the next `AppState`. No I/O, no side effects. This is the single source of truth for all state transitions.
 - **Current behavior**: Matches on `AppEvent` to compute next state. Currently handles all existing variants (navigation, agent lifecycle, form, persistence, etc.).
 - **Integration point for Issues Mode**: New `AppEvent` variants for issues mode are handled by new match arms added to this function. The new arms update `state.issues_state` fields. The existing arms for non-issues events are untouched. The function signature and ownership model (consuming `self`, returning `AppState`) are unchanged.
-- **Verification**: `grep -n "pub fn apply" src/state/mod.rs` must show exactly one definition at L561. All new issues-mode event arms must return a complete `AppState` (not partial/default). No existing arm may be removed or modified.
+- **Verification**: `grep -n "pub fn apply" src/state/mod.rs` must show exactly one definition at L233. All new issues-mode event arms must return a complete `AppState` (not partial/default). No existing arm may be removed or modified.
 
 #### Full Dispatch Chain for a Key Press in Issues Mode
 
@@ -313,16 +336,16 @@ pub fn apply(self, event: AppEvent) -> AppState
 KeyEvent (from terminal)
   │
   ▼
-handle_normal_key_event(key, state, ctx)          ← src/app_input.rs L858
+handle_normal_key_event` — L61
   │  [guard: screen_mode == DashboardIssues]
   ▼
-handle_issues_mode_key(key, state, ctx)            ← src/app_input.rs (NEW, P09/P11)
+handle_issues_mode_key(key, state, ctx)            ← src/app_input/mod.rs (NEW, P09/P11)
   │  [determines AppEvent(s) based on focus domain + key]
   ▼
-dispatch_app_event(event, state, ctx)              ← src/app_input.rs L359
+dispatch_app_event(event, state, ctx)              ← src/app_input/mod.rs L359
   │  [performs I/O, spawns tasks, emits follow-up events]
   ▼
-AppState::apply(state, event)                      ← src/state/mod.rs L561
+AppState::apply(state, event)                      ← src/state/mod.rs L233
   │  [pure state transition; returns new AppState]
   ▼
 New AppState (rendered by UI on next frame)
@@ -335,7 +358,7 @@ This chain must be complete and unbroken. Any issues-mode key that does not reac
 - `ScreenMode` enum extended with `DashboardIssues` variant (currently has `Dashboard`, `Split`).
 - `PaneFocus` behavior extended when in issues mode (currently has `Repositories`, `Agents`, `Terminal`). **NOT modified** — issues mode uses separate `IssueFocus` enum.
 - `InputMode` extended with issues-mode variants (currently has `Normal`, `TerminalCapture`, `Help`, `Search`, `Form`, `Confirm`).
-- Key routing in `app_input.rs` extended: add issues-mode branch before/within `handle_normal_key_event()`.
+- Key routing in `src/app_input/` extended: add issues-mode branch before/within `handle_normal_key_event()`.
 - `Repository` domain type extended with `issue_base_prompt: String` field with `#[serde(default)]`.
 - Repository form in `new_repository.rs` extended with `issue_base_prompt` multiline field.
 
@@ -373,12 +396,12 @@ This chain must be complete and unbroken. Any issues-mode key that does not reac
 
 This section shows the exact current state of key enums as found in source (with verified line numbers), what new variants are added, and how existing behavior is preserved.
 
-### `ScreenMode` — `src/state/mod.rs` L228–233
+### `ScreenMode` — `src/state/types.rs` L221–225
 
 Current source (verified):
 
 ```rust
-// L228
+// L221 (in src/state/types.rs)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ScreenMode {
     #[default]
@@ -401,16 +424,16 @@ How `Dashboard` behavior is preserved when Issues Mode is inactive:
 
 - `ScreenMode::Dashboard` remains the `#[default]` value.
 - All existing `match screen_mode` arms covering `Dashboard` and `Split` continue to execute unchanged when the mode is either of those two values.
-- The new `DashboardIssues` arm is handled by the new `handle_issues_mode_key()` dispatch path added in `app_input.rs` (before the existing handler), so no existing arm is disturbed.
+- The new `DashboardIssues` arm is handled by the new `handle_issues_mode_key()` dispatch path added in `src/app_input/mod.rs` (before the existing handler), so no existing arm is disturbed.
 - When `screen_mode == Dashboard`, the `PaneFocus` cycle (`Repositories → Agents → Terminal`) operates exactly as today.
-- When `screen_mode == Dashboard`, the `s`/`S` → `EnterSplitMode` binding (app_input.rs L945) fires normally because the guard is `screen_mode == ScreenMode::Dashboard`.
+- When `screen_mode == Dashboard`, the `s`/`S` → `EnterSplitMode` binding (src/app_input/normal.rs L148) fires normally because the guard is `screen_mode == ScreenMode::Dashboard`.
 
-### `PaneFocus` — `src/state/mod.rs` L236–241
+### `PaneFocus` — `src/state/types.rs` L229–234
 
 Current source (verified):
 
 ```rust
-// L236
+// L229 (in src/state/types.rs)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum PaneFocus {
     #[default]
@@ -433,9 +456,9 @@ pub enum IssueFocus {
 
 When `screen_mode == DashboardIssues`, the active focus domain is read from `AppState.issues_state.issue_focus: IssueFocus`, not from `AppState.pane_focus`. The `PaneFocus` value during Issues Mode is an implementation detail (held at its last Agents-mode value or restored on exit).
 
-### `AppEvent` — `src/state/mod.rs` L276–346
+### `AppEvent` — `src/state/types.rs` L268–346
 
-Current variants (all PRESERVED — verified line range L276–346):
+Current variants (all PRESERVED — verified line range L268–338):
 
 ```
 NavigateUp, NavigateDown, NavigateLeft, NavigateRight,
@@ -488,7 +511,7 @@ This glossary maps every plan-level name used in the specification and pseudocod
 |------------------|----------------|--------|------|-------|
 | `dashboard_agents` | `ScreenMode::Dashboard` | **Existing** | `src/state/mod.rs` L231 | The current default mode. NOT renamed. |
 | `dashboard_issues` | `ScreenMode::DashboardIssues` | **New** | `src/state/mod.rs` | New variant added to `ScreenMode`. |
-| `split_mode` | `ScreenMode::Split` | **Existing** | `src/state/mod.rs` L232 | Unchanged. |
+| `split_mode` | `ScreenMode::Split ... L224 in src/state/types.rs | Unchanged. |
 | Agents Mode | `ScreenMode::Dashboard` + `PaneFocus::{Repositories,Agents,Terminal}` | **Existing** | `src/state/mod.rs` L229–241 | The current dashboard with agent management. |
 | Issues Mode | `ScreenMode::DashboardIssues` + `IssueFocus::{RepoList,IssueList,IssueDetail}` | **New** | `src/state/mod.rs` | New mode; uses separate focus enum. |
 | `repo_list` focus | `IssueFocus::RepoList` | **New** | `src/state/mod.rs` | Focus on the repository sidebar within Issues Mode. |
@@ -496,16 +519,16 @@ This glossary maps every plan-level name used in the specification and pseudocod
 | `issue_detail` focus | `IssueFocus::IssueDetail` | **New** | `src/state/mod.rs` | Focus on the detail/comments pane. |
 | focus domain | `AppState.issues_state.issue_focus: IssueFocus` | **New** | `src/state/mod.rs` | Active variant determines key dispatch branch. |
 | inline control | `InlineState::{Composer, Editor}` | **New** | `src/state/mod.rs` (issues submodule) | At most one active; exclusivity invariant enforced. |
-| scope change | Repository selection change while `screen_mode == DashboardIssues` | Behavioral | `src/app_input.rs` / `src/state/mod.rs` | Triggers `handle_repo_scope_change_in_issues_mode` (component-003 L128–135). |
-| `issue_base_prompt` | `Repository::issue_base_prompt: String` | **New** | `src/domain/mod.rs` L103+ | New field on existing struct; `#[serde(default)]` for compat. |
+| scope change | Repository selection change while `screen_mode == DashboardIssues` | Behavioral | `src/app_input/mod.rs` / `src/state/mod.rs` | Triggers `handle_repo_scope_change_in_issues_mode` (component-003 L128–135). |
+| `issue_base_prompt` | `Repository::issue_base_prompt: String` | **New** | `src/domain/mod.rs` L196+ | New field on existing struct; `#[serde(default)]` for compat. |
 | `IssuesState` | `AppState.issues_state: IssuesState` | **New** | `src/state/mod.rs` | Aggregate struct for all issues-mode runtime state. |
 | `GhClient` | `crate::github::GhClient` | **New** | `src/github/mod.rs` | `gh` CLI wrapper; synchronous; isolated boundary. |
 | `GhError` | `crate::github::GhError` | **New** | `src/github/mod.rs` | Error enum (component-002 L75–82). |
 | `SendPayload` | `crate::github::SendPayload` | **New** | `src/github/mod.rs` | Built by `build_send_payload` (component-002 L62–74). |
-| `dispatch_issues_event` | `AppState::apply()` issues arm | **New** | `src/state/mod.rs` | Issues events dispatched through existing `apply()` at L561. |
-| `route_issues_mode_key` | `handle_issues_mode_key()` | **New** | `src/app_input.rs` | New function; called from `handle_normal_key_event()` when `screen_mode == DashboardIssues`. |
-| `handle_normal_key_event` | `pub fn handle_normal_key_event(...)` | **Existing** | `src/app_input.rs` L858 | Entry point for normal-mode key dispatch; gains issues branch. |
-| `dispatch_app_event` | `pub fn dispatch_app_event(...)` | **Existing** | `src/app_input.rs` L359 | Event dispatch entry; unchanged in signature. |
+| `dispatch_issues_event` | `AppState::apply()` — L233. |
+| `route_issues_mode_key` | `handle_issues_mode_key()` | **New** | `src/app_input/mod.rs` | New function; called from `handle_normal_key_event()` when `screen_mode == DashboardIssues`. |
+| `handle_normal_key_event` — L61 | Entry point for normal-mode key dispatch; gains issues branch. |
+| `dispatch_app_event` | `pub fn dispatch_app_event(...)` | **Existing** | `src/app_input/mod.rs` L359 | Event dispatch entry; unchanged in signature. |
 | `input_mode_for_state` | `pub fn input_mode_for_state(state: &AppState) -> InputMode` | **Existing** | `src/input.rs` L30 | Gains issues-mode detection before existing `Normal` fallback. |
 
 ---

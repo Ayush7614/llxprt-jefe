@@ -6,7 +6,7 @@
 ## Prerequisites
 - Required: Phase P03A completed
 - Verify previous phase markers/artifacts exist: `.completed/P03.md`, `.completed/P03A.md`
-- Expected files from previous phase: domain types in `src/domain/mod.rs`, state types in `src/state/mod.rs`, input mode extensions in `src/input.rs`, GitHub client stubs in `src/github/mod.rs`
+- Expected files from previous phase: domain types in `src/domain/mod.rs`, state types in `src/state/types.rs` (re-exported via `src/state/mod.rs`), input mode extensions in `src/input.rs`, GitHub client stubs in `src/github/mod.rs`
 
 ## Requirements Implemented (Expanded)
 

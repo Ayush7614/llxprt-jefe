@@ -48,10 +48,10 @@ done
 ### Traceability Marker Verification
 ```bash
 echo "--- @plan markers in test code ---"
-grep -c "@plan PLAN-20260329-ISSUES-MODE.P10" src/app_input.rs src/state/mod.rs || echo "WARN: missing"
+grep -rc "@plan PLAN-20260329-ISSUES-MODE.P10" src/app_input/ src/state/ || echo "WARN: missing"
 
 echo "--- @pseudocode markers in test code ---"
-grep -c "@pseudocode component-003" src/app_input.rs src/state/mod.rs || echo "WARN: missing"
+grep -rc "@pseudocode component-003" src/app_input/ src/state/ || echo "WARN: missing"
 ```
 
 ## Structural Verification Checklist

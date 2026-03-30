@@ -11,7 +11,7 @@ Add a GitHub Issues browsing, interaction, and send-to-agent workflow to Jefe, s
 1. **Extend existing architecture** — add `dashboard_issues` mode to `ScreenMode`/`AppState`, extend `PaneFocus` with issue-specific panes, and route keys through the established `InputMode` dispatch chain.
 2. **Reuse existing patterns** — follow the domain/state/event/UI layering established in firstversion; no parallel architecture forks.
 3. **GitHub API via `gh` CLI** — use the authenticated `gh` CLI as the GitHub API transport (no direct REST/GraphQL client library in v1).
-4. **Modify, don't fork** — update `app_input.rs`, `input.rs`, `state/mod.rs`, `domain/mod.rs`, and UI modules directly.
+4. **Modify, don't fork** — update `src/app_input/`, `input.rs`, `src/state/types.rs` + `src/state/mod.rs`, `domain/mod.rs`, and UI modules directly.
 
 ---
 
@@ -82,7 +82,7 @@ Forbidden couplings:
 | `src/state/mod.rs` | Add `IssuesState`, issue events to `AppEvent`, `dashboard_issues` to `ScreenMode`, issue focus domains to `PaneFocus` |
 | `src/domain/mod.rs` | Add `Issue`, `IssueComment`, `IssueState`, `IssueFilter` types; add `issue_base_prompt` to `Repository` |
 | `src/input.rs` | Add `InputMode::Issues*` variants or extend routing for issues mode |
-| `src/app_input.rs` (main crate) | Add issues-mode key dispatch, `handle_issues_key`, suppression rules |
+| `src/app_input/mod.rs` (main crate) | Add issues-mode key dispatch, `handle_issues_key`, suppression rules |
 | `src/persistence/mod.rs` | Add `issue_base_prompt` to persisted `Repository`; no new persistence file |
 | `src/ui/` | New issue list, issue detail, inline composer/editor, filter controls, agent chooser components |
 | `src/lib.rs` | Add `pub mod github;` for GitHub client boundary |

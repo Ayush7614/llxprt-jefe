@@ -96,9 +96,9 @@ grep -n "use crate::ui\|use crate::state\|use crate::app_input" src/github/mod.r
 find src/ -name "*v2*" -o -name "*_new*" -o -name "*_old*" | head -5
 
 # Enum integrity gate
-grep -A6 "pub enum PaneFocus" src/state/mod.rs
-grep -A5 "pub enum IssueFocus" src/state/mod.rs
-grep -A6 "pub enum ScreenMode" src/state/mod.rs
+grep -A6 "pub enum PaneFocus" src/state/types.rs
+grep -A5 "pub enum IssueFocus" src/state/types.rs
+grep -A6 "pub enum ScreenMode" src/state/types.rs
 
 # Requirement traceability gate
 for req in REQ-ISS-001 REQ-ISS-002 REQ-ISS-003 REQ-ISS-004 REQ-ISS-005 REQ-ISS-006 REQ-ISS-007 REQ-ISS-008 REQ-ISS-009 REQ-ISS-010 REQ-ISS-011 REQ-ISS-012 REQ-ISS-013 REQ-ISS-014 REQ-ISS-NFR-001 REQ-ISS-NFR-002 REQ-ISS-NFR-003; do
@@ -136,7 +136,7 @@ awk '
     found_plan=0
   }
   { found_plan=0 }
-' src/github/mod.rs src/state/mod.rs src/app_input.rs src/input.rs src/domain/mod.rs 2>/dev/null
+' src/github/mod.rs src/state/mod.rs src/app_input/mod.rs src/input.rs src/domain/mod.rs 2>/dev/null
 
 # List all public functions in implementation files that are MISSING @requirement markers
 echo "=== Public functions missing @requirement markers ==="
@@ -147,7 +147,7 @@ awk '
     found_req=0
   }
   { found_req=0 }
-' src/github/mod.rs src/state/mod.rs src/app_input.rs src/input.rs src/domain/mod.rs 2>/dev/null
+' src/github/mod.rs src/state/mod.rs src/app_input/mod.rs src/input.rs src/domain/mod.rs 2>/dev/null
 
 # Check each new/modified file individually for @plan presence
 echo "=== Per-file @plan marker check ==="
@@ -156,7 +156,7 @@ for file in \
   src/state/mod.rs \
   src/domain/mod.rs \
   src/input.rs \
-  src/app_input.rs \
+  src/app_input/mod.rs \
   src/ui/screens/issues.rs \
   src/ui/components/issue_list.rs \
   src/ui/components/issue_detail.rs \
@@ -177,7 +177,7 @@ for file in \
   src/state/mod.rs \
   src/domain/mod.rs \
   src/input.rs \
-  src/app_input.rs \
+  src/app_input/mod.rs \
   src/ui/screens/issues.rs \
   src/ui/components/issue_list.rs \
   src/ui/components/issue_detail.rs \
@@ -196,7 +196,7 @@ echo "=== Per-file @pseudocode marker check ==="
 for file in \
   src/github/mod.rs \
   src/state/mod.rs \
-  src/app_input.rs; do
+  src/app_input/mod.rs; do
   count=$(grep -c "@pseudocode component-" "$file" 2>/dev/null || echo 0)
   if [ "$count" -eq 0 ]; then
     echo "MISSING @pseudocode: $file"
@@ -221,7 +221,7 @@ done
 - [ ] All 17 requirement IDs traced to source code
 - [ ] Plan markers present in source code (`@plan` count ≥ expected)
 - [ ] `@requirement` markers present in all 10 new/modified implementation files
-- [ ] `@pseudocode` markers present in `src/github/mod.rs`, `src/state/mod.rs`, `src/app_input.rs`
+- [ ] `@pseudocode` markers present in `src/github/mod.rs`, `src/state/mod.rs`, `src/app_input/mod.rs`
 
 ## Semantic Verification Checklist (Mandatory)
 - [ ] **REQ-ISS-001**: Mode entry via `i` (state → `ScreenMode::DashboardIssues`), exit via `a` (state → `ScreenMode::Dashboard`), `IssuesState` clean on exit

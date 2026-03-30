@@ -48,10 +48,10 @@ grep -n "issue_base_prompt" src/domain/mod.rs
 grep -A1 "issue_base_prompt" src/domain/mod.rs | grep "serde(default)" || echo "WARN: missing serde(default)"
 
 # Verify IssuesState in AppState
-grep -n "issues_state" src/state/mod.rs
+grep -n "issues_state" src/state/types.rs
 
 # Verify DashboardIssues variant
-grep -n "DashboardIssues" src/state/mod.rs
+grep -n "DashboardIssues" src/state/types.rs
 
 # Verify github module
 grep -n "pub mod github" src/lib.rs
@@ -69,22 +69,22 @@ grep -n "use crate::ui\|use crate::state\|use crate::app_input" src/github/mod.r
 ### ScreenMode Match Arm Verification
 ```bash
 # All match arms on ScreenMode should handle DashboardIssues
-grep -n "ScreenMode::" src/state/mod.rs src/app_input.rs src/input.rs src/ui/ -r | grep -v "DashboardIssues" | grep "Dashboard\b" || echo "OK: all match arms likely updated"
+grep -n "ScreenMode::" src/state/mod.rs src/app_input/mod.rs src/input.rs src/ui/ -r | grep -v "DashboardIssues" | grep "Dashboard\b" || echo "OK: all match arms likely updated"
 ```
 
 ### Enum Preservation Verification
 ```bash
 # Verify PaneFocus is NOT modified (still exactly 3 variants)
 echo "--- PaneFocus (should be unchanged: Repositories, Agents, Terminal) ---"
-grep -A6 "pub enum PaneFocus" src/state/mod.rs
+grep -A6 "pub enum PaneFocus" src/state/types.rs
 
 # Verify IssueFocus is a SEPARATE new enum
 echo "--- IssueFocus (should be new: RepoList, IssueList, IssueDetail) ---"
-grep -A5 "pub enum IssueFocus" src/state/mod.rs
+grep -A5 "pub enum IssueFocus" src/state/types.rs
 
 # Verify existing ScreenMode variants preserved
 echo "--- ScreenMode (should have Dashboard, Split, DashboardIssues) ---"
-grep -A6 "pub enum ScreenMode" src/state/mod.rs
+grep -A6 "pub enum ScreenMode" src/state/types.rs
 
 # Verify existing InputMode variants preserved
 echo "--- InputMode (should have 6 original + 5 new) ---"
@@ -114,9 +114,9 @@ done
 ## Semantic Verification Checklist (Mandatory)
 - [ ] Backward compatibility: existing Repository JSON without `issue_base_prompt` deserializes cleanly to empty string.
 - [ ] No existing key routing or event handling changed in behavior — verify by running existing tests.
-- [ ] Key routing for `a` key still sets `PaneFocus::Agents` when in `ScreenMode::Dashboard` (existing behavior preserved — verified by test or grep of app_input.rs L971-975).
-- [ ] Key routing for `s`/`S` still enters split mode when in `ScreenMode::Dashboard` (existing behavior preserved — verified by test or grep of app_input.rs L945-947).
-- [ ] Key routing for `Ctrl-d`, `Ctrl-k`, `l` still works in non-issues mode (existing behavior preserved — verified by test or grep of app_input.rs L926-942).
+- [ ] Key routing for `a` key still sets `PaneFocus::Agents` when in `ScreenMode::Dashboard` (existing behavior preserved — verified by test or grep of src/app_input/normal.rs L174).
+- [ ] Key routing for `s`/`S` still enters split mode when in `ScreenMode::Dashboard` (existing behavior preserved — verified by test or grep of src/app_input/normal.rs L148-150).
+- [ ] Key routing for `Ctrl-d`, `Ctrl-k`, `l` still works in non-issues mode (existing behavior preserved — verified by test or grep of src/app_input/normal.rs L129-145).
 - [ ] GitHub client module is isolated (no `crate::ui` or `crate::state` imports).
 - [ ] Feature behavior is reachable from real app flow: `ScreenMode::DashboardIssues` is a valid state, `input_mode_for_state()` returns issues-mode variant.
 - [ ] All existing `ScreenMode` match arms handle `DashboardIssues` (no unreachable patterns).

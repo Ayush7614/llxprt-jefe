@@ -263,7 +263,7 @@ Invariants:
 ### `src/input.rs`
 - Extend `InputMode` and `input_mode_for_state()` for issues mode routing.
 
-### `src/app_input.rs` (main crate)
+### `src/app_input/mod.rs` (main crate)
 - Add issues-mode key dispatch handler.
 - Add suppression rules for dashboard keys in issues mode.
 - Wire GitHub client calls for data loading/mutation.
@@ -314,7 +314,7 @@ Send-to-agent chooser component.
 
 ## Integration Touchpoints
 
-1. **Mode toggle**: `app_input.rs` handles `i` key → emits `EnterIssuesMode` → state reducer activates issues mode → UI renders issues layout.
+1. **Mode toggle**: `src/app_input/normal.rs` handles `i` key → emits `EnterIssuesMode` → state reducer activates issues mode → UI renders issues layout.
 2. **Repository scope**: existing repo selection in `repo_list` → on change while in issues mode → emit scope invalidation → reload issues.
 3. **Send-to-agent**: agent chooser → compose payload with `issue_base_prompt` from repository config → deliver to selected agent runtime.
 4. **Persistence**: `issue_base_prompt` persisted alongside other repository fields in `state.json`.

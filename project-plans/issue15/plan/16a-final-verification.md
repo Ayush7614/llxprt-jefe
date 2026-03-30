@@ -58,13 +58,13 @@ find src/ -name "*v2*" -o -name "*_new*" -o -name "*_old*" | head -5
 
 # Enum preservation
 echo "--- PaneFocus (MUST be unchanged: Repositories, Agents, Terminal) ---"
-grep -A6 "pub enum PaneFocus" src/state/mod.rs
+grep -A6 "pub enum PaneFocus" src/state/types.rs
 
 echo "--- IssueFocus (MUST be separate: RepoList, IssueList, IssueDetail) ---"
-grep -A5 "pub enum IssueFocus" src/state/mod.rs
+grep -A5 "pub enum IssueFocus" src/state/types.rs
 
 echo "--- ScreenMode (MUST have: Dashboard, Split, DashboardIssues) ---"
-grep -A6 "pub enum ScreenMode" src/state/mod.rs
+grep -A6 "pub enum ScreenMode" src/state/types.rs
 
 # Count new files
 find src/github/ src/ui/components/issue_list.rs src/ui/components/issue_detail.rs src/ui/components/filter_controls.rs src/ui/components/agent_chooser.rs src/ui/screens/issues.rs -type f 2>/dev/null | wc -l
