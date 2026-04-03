@@ -11,16 +11,19 @@ use crate::theme::{ResolvedColors, ThemeColors};
 
 use super::scrollable_text::ScrollableText;
 
+/// Fixed number of rows the metadata header occupies (title, state, labels, url, separator).
+const HEADER_ROWS: usize = 5;
+
+/// Fixed total rows for the entire detail pane content area (below border).
+/// The scrollable viewport gets VIEWPORT_TOTAL - HEADER_ROWS rows.
+const VIEWPORT_TOTAL: usize = 25;
+
 /// Insert a caret character at the given byte-offset cursor position in the text.
-/// Uses the bright color caret (▏) consistent with form field editing.
-/// The `cursor` parameter is a byte offset (matching the state representation).
 fn render_text_with_caret(value: &str, cursor: usize) -> String {
     let byte_idx = cursor.min(value.len());
-    // Ensure we're at a char boundary
     let byte_idx = if byte_idx == 0 || byte_idx >= value.len() {
         byte_idx
     } else {
-        // Snap to nearest char boundary at or before byte_idx
         value[..byte_idx]
             .char_indices()
             .last()
@@ -30,7 +33,6 @@ fn render_text_with_caret(value: &str, cursor: usize) -> String {
 }
 
 /// Build the scrollable content string for the body + comments + new-comment area.
-/// This is rendered through the ScrollableText component so it never expands layout.
 #[allow(clippy::too_many_lines)]
 fn build_detail_content(
     detail: &IssueDetail,
@@ -87,7 +89,6 @@ fn build_detail_content(
                 prefix, comment.author_login, comment.created_at
             ));
 
-            // Check for editor targeting this comment
             let (cmt_text, cmt_editing) = match inline_state {
                 InlineState::Editor {
                     target: crate::state::EditorTarget::Comment { comment_index },
@@ -112,7 +113,6 @@ fn build_detail_content(
                 lines.push("    Ctrl+Enter save | Esc cancel".to_string());
             }
 
-            // Check for reply composer
             if let InlineState::Composer {
                 target: crate::state::ComposerTarget::Reply { comment_index, .. },
                 text,
@@ -131,7 +131,7 @@ fn build_detail_content(
                 lines.push("    Ctrl+Enter save | Esc cancel".to_string());
             }
 
-            lines.push(String::new()); // blank line between comments
+            lines.push(String::new());
         }
     }
 
@@ -186,7 +186,12 @@ pub struct IssueDetailViewProps {
     pub colors: ThemeColors,
 }
 
-/// Issue detail view — fixed metadata header + scrollable body/comments viewport.
+/// Issue detail view — fixed structure that NEVER changes layout.
+///
+/// ALWAYS renders: border box → 5 header rows → fixed-row scrollable viewport.
+/// When no issue is selected, header rows are blank and viewport shows a message.
+/// This ensures layout is identical regardless of whether an issue is loaded.
+///
 /// @plan PLAN-20260329-ISSUES-MODE.P14
 /// @requirement REQ-ISS-009
 #[component]
@@ -198,51 +203,58 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
         BorderStyle::Round
     };
 
-    let Some(detail) = props.issue_detail.as_ref() else {
-        return element! {
-            Box(
-                flex_direction: FlexDirection::Column,
-                width: 100pct,
-                height: 100pct,
-                border_style: border_style,
-                border_color: rc.border,
-                background_color: rc.bg,
-            ) {
-                Box(padding_left: 1u32, height: 1u32) {
-                    Text(content: "No issue selected", color: rc.dim)
-                }
-            }
+    let scroll_rows = VIEWPORT_TOTAL.saturating_sub(HEADER_ROWS);
+
+    // Build header and content — same structure whether issue is loaded or not
+    let (h_title, h_state, h_labels, h_url, content, state_color) = if let Some(detail) =
+        props.issue_detail.as_ref()
+    {
+        let state_tag = match detail.state {
+            IssueState::Open => "OPEN",
+            IssueState::Closed => "CLOSED",
         };
-    };
+        let sc = match detail.state {
+            IssueState::Open => rc.bright,
+            IssueState::Closed => rc.dim,
+        };
+        let labels_str = if detail.labels.is_empty() {
+            "-".to_string()
+        } else {
+            detail.labels.join(", ")
+        };
+        let assignees_str = if detail.assignees.is_empty() {
+            "-".to_string()
+        } else {
+            detail.assignees.join(", ")
+        };
+        let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
 
-    let state_tag = match detail.state {
-        IssueState::Open => "OPEN",
-        IssueState::Closed => "CLOSED",
-    };
-    let state_color = match detail.state {
-        IssueState::Open => rc.bright,
-        IssueState::Closed => rc.dim,
-    };
-
-    let labels_str = if detail.labels.is_empty() {
-        "-".to_string()
+        (
+            format!("#{} {}", detail.number, detail.title),
+            format!(
+                "{}  by @{}  opened: {}  updated: {}",
+                state_tag, detail.author_login, detail.created_at, detail.updated_at
+            ),
+            format!("labels: {labels_str}  assignees: {assignees_str}  milestone: {milestone_str}"),
+            detail.external_url.clone(),
+            build_detail_content(
+                detail,
+                props.detail_subfocus,
+                &props.inline_state,
+                props.comments_loading,
+            ),
+            sc,
+        )
     } else {
-        detail.labels.join(", ")
+        (
+            String::new(),
+            String::new(),
+            String::new(),
+            String::new(),
+            "No issue selected".to_string(),
+            rc.dim,
+        )
     };
-    let assignees_str = if detail.assignees.is_empty() {
-        "-".to_string()
-    } else {
-        detail.assignees.join(", ")
-    };
-    let milestone_str = detail.milestone.as_deref().unwrap_or("-").to_string();
-
-    // Build the scrollable content for body + comments
-    let content = build_detail_content(
-        detail,
-        props.detail_subfocus,
-        &props.inline_state,
-        props.comments_loading,
-    );
 
     element! {
         Box(
@@ -253,34 +265,19 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
             border_color: rc.border,
             background_color: rc.bg,
         ) {
-            // ── Metadata header (fixed height) ──────────────────────────────
+            // ── Metadata header — always exactly HEADER_ROWS rows ─────────
             Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
                 Box(height: 1u32) {
-                    Text(
-                        content: format!("#{} {}", detail.number, detail.title),
-                        color: rc.fg,
-                    )
+                    Text(content: h_title, color: rc.fg)
                 }
                 Box(height: 1u32) {
-                    Text(content: state_tag, color: state_color)
-                    Text(
-                        content: format!(
-                            "  by @{}  opened: {}  updated: {}",
-                            detail.author_login, detail.created_at, detail.updated_at
-                        ),
-                        color: rc.dim,
-                    )
+                    Text(content: h_state, color: state_color)
                 }
                 Box(height: 1u32) {
-                    Text(content: "labels: ", color: rc.dim)
-                    Text(content: labels_str, color: rc.fg)
-                    Text(content: "  assignees: ", color: rc.dim)
-                    Text(content: assignees_str, color: rc.fg)
-                    Text(content: "  milestone: ", color: rc.dim)
-                    Text(content: milestone_str, color: rc.fg)
+                    Text(content: h_labels, color: rc.dim)
                 }
                 Box(height: 1u32) {
-                    Text(content: detail.external_url.clone(), color: rc.dim)
+                    Text(content: h_url, color: rc.dim)
                 }
                 Box(height: 1u32) {
                     Text(
@@ -290,11 +287,12 @@ pub fn IssueDetailView(props: &IssueDetailViewProps) -> impl Into<AnyElement<'st
                 }
             }
 
-            // ── Scrollable body + comments viewport (fills remaining) ───────
-            Box(flex_grow: 1.0, width: 100pct, padding_left: 1u32) {
+            // ── Scrollable viewport — always exactly scroll_rows rows ─────
+            Box(width: 100pct, padding_left: 1u32) {
                 ScrollableText(
                     content: content,
                     scroll_offset: props.scroll_offset,
+                    viewport_rows: scroll_rows,
                     color: rc.fg,
                     track_color: rc.dim,
                     thumb_color: rc.bright,

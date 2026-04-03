@@ -1,7 +1,8 @@
 //! Scrollable text viewport with scrollbar.
 //!
-//! Renders multi-line text within a viewport that fills available space.
-//! Uses a window of visible lines based on scroll offset, with a scrollbar track.
+//! Renders a FIXED number of line rows (`viewport_rows`) regardless of content length.
+//! Content is windowed by `scroll_offset`. Empty rows are padded so the component
+//! always occupies the same layout space — preventing layout shifts.
 
 use iocraft::prelude::*;
 
@@ -12,6 +13,9 @@ pub struct ScrollableTextProps {
     pub content: String,
     /// Current scroll offset in lines (0 = top).
     pub scroll_offset: usize,
+    /// Fixed number of rows this viewport occupies. Must be set by the parent.
+    /// The component always renders exactly this many `Box(height: 1u32)` elements.
+    pub viewport_rows: usize,
     /// Text color.
     pub color: Option<Color>,
     /// Scrollbar track color (dimmed).
@@ -20,7 +24,7 @@ pub struct ScrollableTextProps {
     pub thumb_color: Option<Color>,
 }
 
-/// Compute scrollbar thumb position and size.
+/// Compute scrollbar thumb position and size using integer math.
 fn scrollbar_geometry(total: usize, visible: usize, offset: usize) -> (usize, usize) {
     if total <= visible || visible == 0 {
         return (0, visible);
@@ -36,47 +40,58 @@ fn scrollbar_geometry(total: usize, visible: usize, offset: usize) -> (usize, us
     (thumb_pos, thumb_size)
 }
 
-/// Scrollable text viewport — renders visible lines and a scrollbar.
+/// Scrollable text viewport — renders exactly `viewport_rows` line boxes.
 ///
-/// The parent Box must constrain height (e.g. `flex_grow: 1.0` in a column).
-/// Only lines within the scroll window are rendered; iocraft's layout handles the rest.
+/// Content is windowed from `scroll_offset`. Lines beyond content are blank.
+/// A scrollbar is drawn on the right when content exceeds the viewport.
 #[component]
 pub fn ScrollableText(props: &ScrollableTextProps) -> impl Into<AnyElement<'static>> {
     let fg = props.color.unwrap_or(Color::Reset);
     let track_color = props.track_color.unwrap_or(Color::DarkGrey);
     let thumb_color = props.thumb_color.unwrap_or(Color::White);
+    let vp = props.viewport_rows.max(1);
 
-    let all_lines: Vec<&str> = props.content.lines().collect();
+    let all_lines: Vec<&str> = if props.content.is_empty() {
+        Vec::new()
+    } else {
+        props.content.lines().collect()
+    };
     let total = all_lines.len();
-    let max_visible = 200;
-    let offset = props.scroll_offset.min(total.saturating_sub(1));
+    let max_offset = total.saturating_sub(vp);
+    let offset = props.scroll_offset.min(max_offset);
 
-    let visible_lines: Vec<&str> = all_lines
-        .iter()
-        .skip(offset)
-        .take(max_visible)
-        .copied()
+    // Build exactly `vp` display lines — pad with empty if content is short
+    let display_lines: Vec<String> = (0..vp)
+        .map(|row| {
+            let line_idx = offset + row;
+            if line_idx < total {
+                all_lines[line_idx].to_string()
+            } else {
+                String::new()
+            }
+        })
         .collect();
 
-    let sb_height = visible_lines.len().min(max_visible);
-    let (thumb_pos, thumb_size) = scrollbar_geometry(total, sb_height, offset);
-    let show_scrollbar = total > 1;
+    let show_scrollbar = total > vp;
+    let (thumb_pos, thumb_size) = scrollbar_geometry(total, vp, offset);
 
     element! {
-        Box(flex_direction: FlexDirection::Row, width: 100pct, height: 100pct) {
+        Box(flex_direction: FlexDirection::Row, width: 100pct) {
+            // Text content column — exactly `vp` rows
             Box(flex_direction: FlexDirection::Column, flex_grow: 1.0) {
-                #(visible_lines.iter().map(|line| {
+                #(display_lines.iter().map(|line| {
                     element! {
                         Box(height: 1u32) {
-                            Text(content: line.to_string(), color: fg, wrap: TextWrap::NoWrap)
+                            Text(content: line.clone(), color: fg, wrap: TextWrap::NoWrap)
                         }
                     }
                 }).collect::<Vec<_>>())
             }
+            // Scrollbar column (1 char wide, same `vp` rows)
             #(if show_scrollbar {
                 vec![element! {
                     Box(flex_direction: FlexDirection::Column, width: 1u32) {
-                        #((0..sb_height).map(|row| {
+                        #((0..vp).map(|row| {
                             let is_thumb = row >= thumb_pos && row < thumb_pos + thumb_size;
                             let ch = if is_thumb { "┃" } else { "│" };
                             let color = if is_thumb { thumb_color } else { track_color };
