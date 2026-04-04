@@ -1252,12 +1252,15 @@ impl AppState {
 
             // @requirement REQ-ISS-011
             AppEvent::OpenAgentChooser => {
-                // Only show agents belonging to the currently selected repository
+                // Only show non-running agents belonging to the selected repository
                 let repo_id = self.selected_repository_id().cloned();
                 let agents: Vec<_> = self
                     .agents
                     .iter()
-                    .filter(|a| repo_id.as_ref().is_some_and(|rid| a.repository_id == *rid))
+                    .filter(|a| {
+                        repo_id.as_ref().is_some_and(|rid| a.repository_id == *rid)
+                            && !a.is_running()
+                    })
                     .map(|a| (a.id.clone(), a.name.clone()))
                     .collect();
                 if !agents.is_empty() {

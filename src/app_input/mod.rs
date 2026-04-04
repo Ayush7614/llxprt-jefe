@@ -613,6 +613,129 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             load_issue_detail_for_selection(app_state, ctx);
         }
 
+        // ── Send issue to agent ──────────────────────────────────────────
+        // @requirement REQ-ISS-011
+        AppEvent::AgentChooserConfirm => {
+            // Gather chosen agent and issue data before clearing the chooser
+            let send_info = {
+                let state = app_state.read();
+                let chooser = state.issues_state.agent_chooser.as_ref();
+                let detail = state.issues_state.issue_detail.as_ref();
+                let subfocus = state.issues_state.detail_subfocus;
+
+                (|| -> Option<_> {
+                    let (ch, det) = chooser.zip(detail)?;
+                    let (agent_id, _) = ch.agents.get(ch.selected_index)?.clone();
+                    let agent = state.agents.iter().find(|a| a.id == agent_id)?.clone();
+                    let repo = state.repository_by_id(&agent.repository_id)?;
+                    let repo_slug = repo.slug.clone();
+                    let base_prompt = repo.issue_base_prompt.clone();
+                    let signature = launch_signature_for_agent(&agent, repo);
+
+                    let focused_comment = match subfocus {
+                        jefe::state::DetailSubfocus::Comment(idx) => det.comments.get(idx).cloned(),
+                        _ => None,
+                    };
+                    let payload = jefe::github::GhClient::build_send_payload(
+                        &repo_slug,
+                        det,
+                        focused_comment.as_ref(),
+                        &base_prompt,
+                    );
+                    Some((agent_id, agent.work_dir.clone(), signature, payload))
+                })()
+            };
+
+            // Clear the chooser regardless
+            apply_and_persist(app_state, ctx, evt);
+
+            let Some((agent_id, work_dir, signature, payload)) = send_info else {
+                return;
+            };
+
+            // Write the issue prompt to a file in the agent's work dir
+            let prompt_dir = work_dir.join(".jefe");
+            if let Err(e) = std::fs::create_dir_all(&prompt_dir) {
+                let mut state = app_state.write();
+                *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
+                    error: format!("Failed to create .jefe dir: {e}"),
+                });
+                return;
+            }
+            let prompt_path = prompt_dir.join("issue-prompt.md");
+            let prompt_content = format_issue_prompt(&payload);
+            if let Err(e) = std::fs::write(&prompt_path, &prompt_content) {
+                let mut state = app_state.write();
+                *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
+                    error: format!("Failed to write issue prompt: {e}"),
+                });
+                return;
+            }
+
+            // Clone signature with -i flag for this launch only
+            let mut launch_sig = signature;
+            launch_sig.mode_flags.push("-i".to_owned());
+            launch_sig.mode_flags.push(
+                "Read and work on the GitHub issue described in .jefe/issue-prompt.md".to_owned(),
+            );
+
+            // Launch the agent
+            let mut launched = false;
+            if let Some(ctx_arc) = &ctx
+                && let Ok(mut ctx_guard) = ctx_arc.lock()
+            {
+                match ctx_guard
+                    .runtime
+                    .spawn_session_fresh(&agent_id, &work_dir, &launch_sig)
+                {
+                    Ok(()) => {
+                        std::thread::sleep(REMOTE_ATTACH_SETTLE_DELAY);
+                        match ctx_guard.runtime.attach(&agent_id) {
+                            Ok(()) => {
+                                launched = true;
+                            }
+                            Err(e) => {
+                                warn!(
+                                    agent_id = %agent_id.0,
+                                    error = %e,
+                                    "could not attach agent after issue send"
+                                );
+                                let _ = ctx_guard.runtime.mark_session_dead(&agent_id);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            agent_id = %agent_id.0,
+                            error = %e,
+                            "could not spawn agent for issue send"
+                        );
+                    }
+                }
+            }
+
+            let mut state = app_state.write();
+            if launched {
+                if let Some(agent) = state.agents.iter_mut().find(|a| a.id == agent_id) {
+                    agent.status = jefe::domain::AgentStatus::Running;
+                    let session_name = jefe::runtime::RuntimeSession::session_name_for(&agent_id);
+                    agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
+                        session_name,
+                        launch_signature: launch_sig,
+                        attached: true,
+                        last_seen: None,
+                    });
+                }
+                clear_agent_runtime_attachment(&mut state);
+                mark_agent_runtime_attached(&mut state, &agent_id, true);
+            } else {
+                *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
+                    error: "Failed to launch agent".to_string(),
+                });
+            }
+            persist_state_snapshot(ctx, &state);
+        }
+
         // @plan PLAN-20260329-ISSUES-MODE.P15
         // @requirement REQ-ISS-010
         AppEvent::InlineSubmit => {
@@ -963,6 +1086,50 @@ fn parse_github_owner_repo(url: &str) -> (String, String) {
     }
 
     (String::new(), String::new())
+}
+
+/// Format a `SendPayload` into a markdown issue prompt for the agent.
+fn format_issue_prompt(payload: &jefe::github::SendPayload) -> String {
+    use std::fmt::Write;
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "# GitHub Issue #{}: {}",
+        payload.issue_number, payload.issue_title
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "**Repository:** {}", payload.repository);
+    let _ = writeln!(out, "**State:** {}", payload.issue_state);
+    if !payload.issue_labels.is_empty() {
+        let _ = writeln!(out, "**Labels:** {}", payload.issue_labels.join(", "));
+    }
+    if !payload.issue_assignees.is_empty() {
+        let _ = writeln!(out, "**Assignees:** {}", payload.issue_assignees.join(", "));
+    }
+    let _ = writeln!(out);
+    let _ = writeln!(out, "## Body");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "{}", payload.issue_body);
+
+    if let Some(comment) = &payload.focused_comment {
+        let _ = writeln!(out);
+        if let Some(author) = &payload.focused_comment_author {
+            let _ = writeln!(out, "## Focused Comment (by @{author})");
+        } else {
+            let _ = writeln!(out, "## Focused Comment");
+        }
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{comment}");
+    }
+
+    if !payload.issue_base_prompt.is_empty() {
+        let _ = writeln!(out);
+        let _ = writeln!(out, "## Instructions");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "{}", payload.issue_base_prompt);
+    }
+
+    out
 }
 
 pub fn handle_f12_toggle(app_state: &mut AppStateHandle, ctx: &SharedContext) {
