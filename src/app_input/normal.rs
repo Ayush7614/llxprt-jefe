@@ -177,7 +177,7 @@ pub fn handle_normal_key_event(
         // @plan PLAN-20260329-ISSUES-MODE.P11
         // @requirement REQ-ISS-001
         // @pseudocode component-003 lines 01-02
-        KeyCode::Char('i') if screen_mode == ScreenMode::Dashboard => {
+        KeyCode::Char('i' | 'I') if screen_mode == ScreenMode::Dashboard => {
             Some(AppEvent::EnterIssuesMode)
         }
 
