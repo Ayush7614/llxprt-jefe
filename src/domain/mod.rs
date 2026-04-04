@@ -199,6 +199,10 @@ pub struct Repository {
     pub slug: String,
     pub base_dir: PathBuf,
     pub default_profile: String,
+    /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
+    /// When set, issues mode uses this instead of auto-detecting from git remotes.
+    #[serde(default)]
+    pub github_repo: String,
     #[serde(default)]
     pub remote: RemoteRepositorySettings,
     #[serde(default)]
@@ -368,6 +372,7 @@ impl Agent {
             name,
             description: String::new(),
             work_dir,
+
             profile: String::new(),
             mode_flags: Vec::new(),
             llxprt_debug: String::new(),
@@ -397,6 +402,7 @@ impl Repository {
             slug,
             base_dir,
             default_profile: String::new(),
+            github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: String::new(),
             agent_ids: Vec::new(),
@@ -629,6 +635,7 @@ mod tests {
             slug: "test-repo".to_string(),
             base_dir: PathBuf::from("/tmp/test-repo"),
             default_profile: String::new(),
+            github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: "Prioritize diagnosis".to_string(),
             agent_ids: vec![],

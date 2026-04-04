@@ -554,7 +554,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
                 let mut state = app_state.write();
                 *state = std::mem::take(&mut *state).apply(AppEvent::IssueListLoadFailed {
                     scope_repo_id,
-                    error: "No GitHub repository detected. Ensure the repository has a git remote pointing to GitHub.".to_string(),
+                    error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
                 });
                 return;
             }
@@ -770,7 +770,7 @@ pub fn dispatch_app_event(app_state: &mut AppStateHandle, ctx: &SharedContext, e
             if owner.is_empty() || repo.is_empty() {
                 let mut state = app_state.write();
                 *state = std::mem::take(&mut *state).apply(AppEvent::MutationFailed {
-                    error: "No GitHub repository detected".to_string(),
+                    error: "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings.".to_string(),
                 });
                 return;
             }
@@ -925,9 +925,7 @@ fn current_scope_repo_id(state: &jefe::state::AppState) -> jefe::domain::Reposit
 }
 
 /// Resolve the GitHub owner/repo for the currently selected repository.
-///
-/// Attempts to extract from the repo's `base_dir` by running `git remote get-url origin`
-/// and parsing the GitHub owner/repo from the URL.
+/// Reads from the explicit `github_repo` field (format: `"owner/repo"`).
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-013
@@ -940,23 +938,20 @@ fn resolve_gh_repo(state: &jefe::state::AppState) -> (String, String) {
         return (String::new(), String::new());
     };
 
-    // Try to get owner/repo from git remote URL
-    let base_dir = &repo.base_dir;
-    let output = std::process::Command::new("git")
-        .args(["remote", "get-url", "origin"])
-        .current_dir(base_dir)
-        .output();
-
-    let Ok(output) = output else {
-        return (String::new(), String::new());
-    };
-
-    if !output.status.success() {
+    let gh = repo.github_repo.trim();
+    if gh.is_empty() {
         return (String::new(), String::new());
     }
 
-    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    parse_github_owner_repo(&url)
+    if let Some((owner, name)) = gh.split_once('/') {
+        let owner = owner.trim();
+        let name = name.trim();
+        if !owner.is_empty() && !name.is_empty() {
+            return (owner.to_owned(), name.to_owned());
+        }
+    }
+
+    (String::new(), String::new())
 }
 
 /// Build a lightweight issue detail preview from list data (no I/O).
@@ -1059,33 +1054,6 @@ fn load_issue_detail_for_selection(app_state: &mut AppStateHandle, ctx: &SharedC
         }
         None => {}
     }
-}
-
-/// Parse owner/repo from a GitHub remote URL.
-///
-/// Supports:
-/// - `https://github.com/owner/repo.git`
-/// - `https://github.com/owner/repo`
-/// - `git@github.com:owner/repo.git`
-/// - `git@github.com:owner/repo`
-fn parse_github_owner_repo(url: &str) -> (String, String) {
-    // HTTPS format
-    if let Some(rest) = url.strip_prefix("https://github.com/") {
-        let rest = rest.strip_suffix(".git").unwrap_or(rest);
-        if let Some((owner, repo)) = rest.split_once('/') {
-            return (owner.to_string(), repo.to_string());
-        }
-    }
-
-    // SSH format
-    if let Some(rest) = url.strip_prefix("git@github.com:") {
-        let rest = rest.strip_suffix(".git").unwrap_or(rest);
-        if let Some((owner, repo)) = rest.split_once('/') {
-            return (owner.to_string(), repo.to_string());
-        }
-    }
-
-    (String::new(), String::new())
 }
 
 /// Format a `SendPayload` into a markdown issue prompt for the agent.

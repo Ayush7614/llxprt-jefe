@@ -482,6 +482,7 @@ mod tests {
             slug: "issues-repo".to_string(),
             base_dir: PathBuf::from("/tmp/issues-repo"),
             default_profile: String::new(),
+            github_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
             issue_base_prompt: "Always reproduce the bug first".to_string(),
             agent_ids: vec![],
