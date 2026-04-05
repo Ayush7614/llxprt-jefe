@@ -100,6 +100,8 @@ struct AppContext {
     persistence: jefe::persistence::FilePersistenceManager,
     theme_manager: FileThemeManager,
     runtime: TmuxRuntimeManager,
+    /// @plan PLAN-20260329-ISSUES-MODE.P09
+    gh_client: jefe::github::GhClient,
 }
 
 /// Delete the currently selected repository from state.
@@ -427,6 +429,34 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                             persist_state_snapshot(&ctx, &state);
                             suppress_next_enter.set(false);
                         }
+                        InputMode::IssuesInline => {
+                            let mut state = app_state.write();
+                            for ch in pasted_text.chars().filter(|ch| *ch != '\r') {
+                                if ch == '\n' {
+                                    *state =
+                                        std::mem::take(&mut *state).apply(AppEvent::InlineNewline);
+                                } else {
+                                    *state =
+                                        std::mem::take(&mut *state).apply(AppEvent::InlineChar(ch));
+                                }
+                            }
+                            persist_state_snapshot(&ctx, &state);
+                            suppress_next_enter.set(false);
+                        }
+                        InputMode::IssuesSearch => {
+                            let mut state = app_state.write();
+                            let filtered: String = pasted_text
+                                .chars()
+                                .filter(|ch| *ch != '\r' && *ch != '\n')
+                                .collect();
+                            if !filtered.is_empty() {
+                                let mut query = state.issues_state.search_query.clone();
+                                query.push_str(&filtered);
+                                *state = std::mem::take(&mut *state)
+                                    .apply(AppEvent::SetSearchQuery { query });
+                            }
+                            suppress_next_enter.set(false);
+                        }
                         _ => {
                             suppress_next_enter.set(false);
                         }
@@ -556,7 +586,14 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
                                 return;
                             }
                         }
-                        InputMode::TerminalCapture | InputMode::Normal => {}
+                        // @plan PLAN-20260329-ISSUES-MODE.P03
+                        InputMode::TerminalCapture
+                        | InputMode::Normal
+                        | InputMode::IssuesNormal
+                        | InputMode::IssuesInline
+                        | InputMode::IssuesSearch
+                        | InputMode::IssuesFilter
+                        | InputMode::IssuesChooser => {}
                     }
 
                     if let Some(evt) = handle_normal_key_event(
@@ -750,6 +787,17 @@ fn App(mut hooks: Hooks, props: &AppProps) -> impl Into<AnyElement<'static>> {
             )
         }
         .into_any(),
+        // Issues mode placeholder — will be implemented in later phases
+        // @plan PLAN-20260329-ISSUES-MODE.P03
+        ScreenMode::DashboardIssues => element! {
+            Dashboard(
+                state: Some(snapshot.clone()),
+                colors: Some(colors.clone()),
+                theme_name: theme_name.clone(),
+                terminal_snapshot: terminal_snapshot,
+            )
+        }
+        .into_any(),
     };
 
     let confirm_modal_data = match &modal {
@@ -899,6 +947,7 @@ fn main() {
         persistence,
         theme_manager,
         runtime,
+        gh_client: jefe::github::GhClient::new(),
     }));
 
     smol::block_on(async {
@@ -915,53 +964,5 @@ fn main() {
 }
 
 #[cfg(test)]
-mod remote_agent_tests {
-    use super::delete_selected_agent;
-    use jefe::domain::{Agent, AgentId, RemoteRepositorySettings, Repository, RepositoryId};
-    use jefe::state::AppState;
-    use std::path::PathBuf;
-
-    #[test]
-    fn delete_selected_agent_skips_local_directory_removal_for_remote_repository() {
-        let repo_id = RepositoryId("repo-1".into());
-        let agent_id = AgentId("agent-1".into());
-        let missing_remote_path = PathBuf::from("/definitely/not/local/remote-agent-path");
-
-        let mut repository = Repository::new(
-            repo_id.clone(),
-            "Remote Repo".into(),
-            "remote-repo".into(),
-            PathBuf::from("/srv/agents"),
-        );
-        repository.remote = RemoteRepositorySettings {
-            enabled: true,
-            login_user: "ubuntu".into(),
-            host: "192.0.2.10".into(),
-            run_as_user: "acoliver".into(),
-            setup_env_default: true,
-        };
-
-        let mut agent = Agent::new(
-            agent_id.clone(),
-            repo_id.clone(),
-            "Agent One".into(),
-            missing_remote_path.clone(),
-        );
-        agent.status = jefe::domain::AgentStatus::Running;
-
-        let mut state = AppState::default();
-        state.repositories.push(repository);
-        state.agents.push(agent);
-        state.selected_repository_index = Some(0);
-        state.selected_agent_index = Some(0);
-        state.rebuild_repository_agent_ids();
-        state.normalize_selection_indices();
-
-        let removed = delete_selected_agent(&mut state, &agent_id, true);
-
-        assert_eq!(removed, Some(agent_id));
-        assert!(state.agents.is_empty());
-        assert!(state.repositories[0].remote.enabled);
-        assert_eq!(state.selected_agent_index, None);
-    }
-}
+#[path = "main_tests.rs"]
+mod remote_agent_tests;

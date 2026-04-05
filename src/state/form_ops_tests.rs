@@ -9,7 +9,9 @@ fn seed_repository() -> Repository {
         slug: "repo-1".to_owned(),
         base_dir: std::path::PathBuf::from("/tmp/repo-1"),
         default_profile: String::new(),
+        github_repo: String::new(),
         remote: RemoteRepositorySettings::default(),
+        issue_base_prompt: String::new(),
         agent_ids: Vec::new(),
     }
 }
@@ -126,6 +128,7 @@ fn remote_repository_creation_preserves_remote_base_dir_without_local_expansion(
         name: "Remote Repo".to_owned(),
         base_dir: "~/remote/worktrees".to_owned(),
         default_profile: "ship".to_owned(),
+        github_repo: String::new(),
         remote_enabled: true,
         login_user: "ubuntu".to_owned(),
         host: "170.9.234.179".to_owned(),
@@ -154,6 +157,7 @@ fn repository_name_that_normalizes_to_empty_slug_is_rejected() {
         name: "///".to_owned(),
         base_dir: String::new(),
         default_profile: String::new(),
+        github_repo: String::new(),
         remote_enabled: false,
         login_user: String::new(),
         host: String::new(),
@@ -231,9 +235,10 @@ fn repository_checkbox_toggle_updates_remote_fields() {
         ..AppState::default()
     };
     state = state.apply(AppEvent::OpenNewRepository);
-    state = state.apply(AppEvent::FormNextField);
-    state = state.apply(AppEvent::FormNextField);
-    state = state.apply(AppEvent::FormNextField);
+    state = state.apply(AppEvent::FormNextField); // Name → BaseDir
+    state = state.apply(AppEvent::FormNextField); // BaseDir → DefaultProfile
+    state = state.apply(AppEvent::FormNextField); // DefaultProfile → GitHubRepo
+    state = state.apply(AppEvent::FormNextField); // GitHubRepo → RemoteEnabled
     state = state.apply(AppEvent::FormToggleCheckbox);
     state = state.apply(AppEvent::FormNextField);
     state = state.apply(AppEvent::FormChar('u'));

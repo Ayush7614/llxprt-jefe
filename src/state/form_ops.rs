@@ -151,6 +151,10 @@ impl AppState {
                     cursor.default_profile =
                         insert_char_at(&mut fields.default_profile, cursor.default_profile, c);
                 }
+                RepositoryFormFocus::GitHubRepo => {
+                    cursor.github_repo =
+                        insert_char_at(&mut fields.github_repo, cursor.github_repo, c);
+                }
                 RepositoryFormFocus::LoginUser => {
                     cursor.login_user =
                         insert_char_at(&mut fields.login_user, cursor.login_user, c);
@@ -219,6 +223,10 @@ impl AppState {
                 cursor.default_profile =
                     delete_char_before(&mut fields.default_profile, cursor.default_profile);
             }
+            RepositoryFormFocus::GitHubRepo => {
+                cursor.github_repo =
+                    delete_char_before(&mut fields.github_repo, cursor.github_repo);
+            }
             RepositoryFormFocus::LoginUser => {
                 cursor.login_user = delete_char_before(&mut fields.login_user, cursor.login_user);
             }
@@ -247,6 +255,9 @@ impl AppState {
             }
             RepositoryFormFocus::DefaultProfile => {
                 delete_char_at(&mut fields.default_profile, cursor.default_profile);
+            }
+            RepositoryFormFocus::GitHubRepo => {
+                delete_char_at(&mut fields.github_repo, cursor.github_repo);
             }
             RepositoryFormFocus::LoginUser => {
                 delete_char_at(&mut fields.login_user, cursor.login_user);
@@ -455,6 +466,9 @@ impl AppState {
                 RepositoryFormFocus::DefaultProfile => {
                     cursor.default_profile = move_cursor_left(cursor.default_profile);
                 }
+                RepositoryFormFocus::GitHubRepo => {
+                    cursor.github_repo = move_cursor_left(cursor.github_repo);
+                }
                 RepositoryFormFocus::LoginUser => {
                     cursor.login_user = move_cursor_left(cursor.login_user);
                 }
@@ -522,6 +536,9 @@ impl AppState {
                 RepositoryFormFocus::DefaultProfile => {
                     cursor.default_profile =
                         move_cursor_right(&fields.default_profile, cursor.default_profile);
+                }
+                RepositoryFormFocus::GitHubRepo => {
+                    cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
                 }
                 RepositoryFormFocus::LoginUser => {
                     cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
@@ -615,6 +632,7 @@ impl AppState {
             RepositoryFormFocus::Name
             | RepositoryFormFocus::BaseDir
             | RepositoryFormFocus::DefaultProfile
+            | RepositoryFormFocus::GitHubRepo
             | RepositoryFormFocus::LoginUser
             | RepositoryFormFocus::Host
             | RepositoryFormFocus::RunAsUser => {}
@@ -740,14 +758,14 @@ impl AppState {
             expand_tilde(trimmed_base_dir)
         };
 
-        if !fields.remote_enabled {
-            if let Err(e) = std::fs::create_dir_all(&base_dir) {
-                warn!(
-                    base_dir = %base_dir,
-                    error = %e,
-                    "could not create local repository base directory"
-                );
-            }
+        if !fields.remote_enabled
+            && let Err(e) = std::fs::create_dir_all(&base_dir)
+        {
+            warn!(
+                base_dir = %base_dir,
+                error = %e,
+                "could not create local repository base directory"
+            );
         }
 
         Some(Repository {
@@ -756,7 +774,9 @@ impl AppState {
             slug,
             base_dir: std::path::PathBuf::from(&base_dir),
             default_profile: normalize_profile(&fields.default_profile),
+            github_repo: fields.github_repo.trim().to_owned(),
             remote: Self::remote_settings_from_fields(fields),
+            issue_base_prompt: String::new(),
             agent_ids: Vec::new(),
         })
     }
@@ -784,6 +804,7 @@ impl AppState {
         }
 
         repo.default_profile = normalize_profile(&fields.default_profile);
+        fields.github_repo.trim().clone_into(&mut repo.github_repo);
         repo.remote = Self::remote_settings_from_fields(fields);
     }
 
@@ -798,14 +819,14 @@ impl AppState {
         }
 
         let work_dir = Self::validated_agent_work_dir(repository, &fields.work_dir)?;
-        if !repository.remote.enabled {
-            if let Err(e) = std::fs::create_dir_all(&work_dir) {
-                warn!(
-                    work_dir = %work_dir,
-                    error = %e,
-                    "could not create local agent work directory"
-                );
-            }
+        if !repository.remote.enabled
+            && let Err(e) = std::fs::create_dir_all(&work_dir)
+        {
+            warn!(
+                work_dir = %work_dir,
+                error = %e,
+                "could not create local agent work directory"
+            );
         }
 
         let mode_flags: Vec<String> = if fields.mode.trim().is_empty() {
@@ -854,14 +875,15 @@ impl AppState {
         agent.description.clone_from(&fields.description);
 
         if let Some(new_dir) = Self::validated_agent_work_dir(repository, &fields.work_dir) {
-            if !repository.remote.enabled && new_dir != agent.work_dir.to_string_lossy() {
-                if let Err(e) = std::fs::create_dir_all(&new_dir) {
-                    warn!(
-                        work_dir = %new_dir,
-                        error = %e,
-                        "could not create updated local agent work directory"
-                    );
-                }
+            if !repository.remote.enabled
+                && new_dir != agent.work_dir.to_string_lossy()
+                && let Err(e) = std::fs::create_dir_all(&new_dir)
+            {
+                warn!(
+                    work_dir = %new_dir,
+                    error = %e,
+                    "could not create updated local agent work directory"
+                );
             }
             agent.work_dir = std::path::PathBuf::from(&new_dir);
         }

@@ -7,6 +7,7 @@
 //! Pseudocode reference: component-001 lines 01-12
 
 mod form_ops;
+mod issues_ops;
 mod types;
 mod util;
 
@@ -16,6 +17,59 @@ use tracing::{debug, trace};
 
 use crate::domain::{Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, SandboxEngine};
 use crate::domain::{Repository, RepositoryId};
+
+/// Move the inline editor cursor up or down by `direction` lines (-1 = up, 1 = down).
+/// Attempts to land on the same column in the target line, clamping to line length.
+fn inline_cursor_vertical(text: &str, cursor: &mut usize, direction: i32) {
+    // Find line boundaries and current line/column
+    let mut line_starts: Vec<usize> = vec![0];
+    for (i, ch) in text.char_indices() {
+        if ch == char::from(0x0Au8) {
+            line_starts.push(i + ch.len_utf8());
+        }
+    }
+
+    // Find which line the cursor is on
+    let mut current_line = 0;
+    for (i, &start) in line_starts.iter().enumerate() {
+        if *cursor >= start {
+            current_line = i;
+        }
+    }
+
+    let col = *cursor - line_starts[current_line];
+    let target_line = if direction < 0 {
+        current_line.saturating_sub(1)
+    } else {
+        (current_line + 1).min(line_starts.len() - 1)
+    };
+
+    if target_line == current_line {
+        return; // already at first/last line
+    }
+
+    // Find end of target line
+    let target_start = line_starts[target_line];
+    let target_end = if target_line + 1 < line_starts.len() {
+        // end is just before the newline
+        line_starts[target_line + 1] - 1
+    } else {
+        text.len()
+    };
+
+    let target_len = target_end - target_start;
+    let raw_pos = target_start + col.min(target_len);
+    // Snap to nearest char boundary at or before raw_pos.
+    // Use char end positions (start + len) since cursor can sit after the last char.
+    let target_slice = &text[target_start..target_end];
+    let snapped = target_slice
+        .char_indices()
+        .map(|(i, c)| target_start + i + c.len_utf8())
+        .take_while(|end_pos| *end_pos <= raw_pos)
+        .last()
+        .unwrap_or(target_start);
+    *cursor = snapped.min(target_end);
+}
 
 impl AppState {
     fn selected_repository_id(&self) -> Option<&RepositoryId> {
@@ -278,6 +332,25 @@ impl AppState {
                     self.remember_selected_agent_for_current_repo();
                     self.selected_repository_index = Some(idx);
                     self.restore_selected_agent_for_current_repo();
+
+                    // Scope change while in issues mode invalidates loaded data.
+                    // @plan PLAN-20260329-ISSUES-MODE.P15
+                    // @requirement REQ-ISS-001, REQ-ISS-013
+                    if self.issues_state.active {
+                        // Discard unsent inline drafts with notice
+                        if self.issues_state.inline_state != InlineState::None {
+                            self.issues_state.draft_notice =
+                                Some("Unsent draft discarded".to_string());
+                            self.issues_state.inline_state = InlineState::None;
+                        }
+                        self.issues_state.issues.clear();
+                        self.issues_state.selected_issue_index = None;
+                        self.issues_state.issue_detail = None;
+                        self.issues_state.list_cursor = None;
+                        self.issues_state.has_more_issues = false;
+                        self.issues_state.error = None;
+                        self.issues_state.list_loading = true;
+                    }
                 }
             }
             AppEvent::SelectAgent(idx) => {
@@ -454,6 +527,7 @@ impl AppState {
                         name: r.name.clone(),
                         base_dir: r.base_dir.to_string_lossy().into_owned(),
                         default_profile: r.default_profile.clone(),
+                        github_repo: r.github_repo.clone(),
                         remote_enabled: r.remote.enabled,
                         login_user: r.remote.login_user.clone(),
                         host: r.remote.host.clone(),
@@ -467,6 +541,7 @@ impl AppState {
                         name: fields.name.chars().count(),
                         base_dir: fields.base_dir.chars().count(),
                         default_profile: fields.default_profile.chars().count(),
+                        github_repo: fields.github_repo.chars().count(),
                         login_user: fields.login_user.chars().count(),
                         host: fields.host.chars().count(),
                         run_as_user: fields.run_as_user.chars().count(),
@@ -621,7 +696,17 @@ impl AppState {
             }
 
             // No-op events (handled elsewhere or reserved)
-            AppEvent::PersistenceSaveSuccess | AppEvent::SetTheme(_) | AppEvent::Quit => {}
+            AppEvent::PersistenceSaveSuccess
+            | AppEvent::SetTheme(_)
+            | AppEvent::Quit
+            | AppEvent::ApplySearch
+            | AppEvent::InlineSubmit => {}
+
+            // Issues mode events — delegated to issues_ops.rs
+            event => {
+                let handled = self.apply_issues_event(event);
+                debug_assert!(handled, "unhandled AppEvent variant in apply()");
+            }
         }
 
         self.rebuild_repository_agent_ids();
@@ -746,3 +831,25 @@ impl AppState {
             .then_some(agent)
     }
 }
+
+#[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::field_reassign_with_default,
+    clippy::manual_string_new,
+    clippy::uninlined_format_args
+)]
+#[path = "issues_tests.rs"]
+mod issues_tests;
+
+#[cfg(test)]
+#[allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::field_reassign_with_default,
+    clippy::manual_string_new,
+    clippy::uninlined_format_args
+)]
+#[path = "issues_tests_detail.rs"]
+mod issues_tests_detail;

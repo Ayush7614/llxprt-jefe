@@ -72,14 +72,25 @@ pub fn NewRepositoryForm(props: &NewRepositoryFormProps) -> impl Into<AnyElement
     );
 
     // Build field lines with cursor indicator for focused field
-    let labels = ["Name", "Base Dir", "Default Profile"];
-    let values = [&fields.name, &fields.base_dir, &fields.default_profile];
+    let labels = ["Name", "Base Dir", "Default Profile", "GitHub Repo"];
+    let values = [
+        &fields.name,
+        &fields.base_dir,
+        &fields.default_profile,
+        &fields.github_repo,
+    ];
     let focuses = [
         RepositoryFormFocus::Name,
         RepositoryFormFocus::BaseDir,
         RepositoryFormFocus::DefaultProfile,
+        RepositoryFormFocus::GitHubRepo,
     ];
-    let cursors = [cursor.name, cursor.base_dir, cursor.default_profile];
+    let cursors = [
+        cursor.name,
+        cursor.base_dir,
+        cursor.default_profile,
+        cursor.github_repo,
+    ];
 
     let mut field_lines: Vec<AnyElement<'static>> = labels
         .iter()
