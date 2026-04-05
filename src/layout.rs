@@ -19,26 +19,30 @@ pub fn is_fullscreen_enabled() -> bool {
     std::env::var("JEFE_WINDOWED").ok().as_deref() != Some("1")
 }
 
-/// Calculate effective render dimensions.
+/// Calculate effective render dimensions for a given fullscreen flag.
 #[must_use]
-pub fn effective_render_size(cols: u16, rows: u16) -> (u16, u16) {
-    if is_fullscreen_enabled() {
+fn effective_render_size_inner(cols: u16, rows: u16, fullscreen: bool) -> (u16, u16) {
+    if fullscreen {
         (cols, rows)
     } else {
         (cols.saturating_sub(2).max(1), rows.saturating_sub(2).max(1))
     }
 }
 
-/// Compute PTY viewport size and its origin within the fullscreen render grid.
-///
-/// Layout mirrors dashboard proportions:
-/// - top status bar (1 row)
-/// - bottom keybind bar (1 row)
-/// - middle column split: agent list 25%, terminal 75%
-/// - terminal widget chrome: border + header + border
+/// Calculate effective render dimensions.
 #[must_use]
-pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> (u16, u16, u16, u16) {
-    let (render_cols, render_rows) = effective_render_size(term_cols, term_rows);
+pub fn effective_render_size(cols: u16, rows: u16) -> (u16, u16) {
+    effective_render_size_inner(cols, rows, is_fullscreen_enabled())
+}
+
+/// Compute PTY viewport size and its origin for a given fullscreen flag.
+#[must_use]
+fn compute_pty_layout_inner(
+    term_cols: u16,
+    term_rows: u16,
+    fullscreen: bool,
+) -> (u16, u16, u16, u16) {
+    let (render_cols, render_rows) = effective_render_size_inner(term_cols, term_rows, fullscreen);
 
     let content_rows = render_rows.saturating_sub(OUTER_BARS_HEIGHT);
     let middle_cols = render_cols.saturating_sub(LEFT_COL_WIDTH + RIGHT_COL_WIDTH);
@@ -66,62 +70,81 @@ pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> (u16, u16, u16, u16
     (pty_rows, pty_cols, pane_col0, pane_row0)
 }
 
+/// Compute PTY viewport size and its origin within the fullscreen render grid.
+///
+/// Layout mirrors dashboard proportions:
+/// - top status bar (1 row)
+/// - bottom keybind bar (1 row)
+/// - middle column split: agent list 25%, terminal 75%
+/// - terminal widget chrome: border + header + border
+#[must_use]
+pub fn compute_pty_layout(term_cols: u16, term_rows: u16) -> (u16, u16, u16, u16) {
+    compute_pty_layout_inner(term_cols, term_rows, is_fullscreen_enabled())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // Note: tests that depend on `is_fullscreen_enabled()` are sensitive to the
-    // JEFE_WINDOWED env var at test-run time. We test the pure computation paths
-    // directly and verify the windowed subtraction logic with explicit math.
-
     #[test]
-    fn effective_render_size_passthrough_in_fullscreen() {
-        // In fullscreen mode, dimensions pass through unchanged.
-        if is_fullscreen_enabled() {
-            assert_eq!(effective_render_size(120, 40), (120, 40));
-            assert_eq!(effective_render_size(80, 24), (80, 24));
-        }
+    fn effective_render_size_fullscreen_passthrough() {
+        assert_eq!(effective_render_size_inner(120, 40, true), (120, 40));
+        assert_eq!(effective_render_size_inner(80, 24, true), (80, 24));
     }
 
     #[test]
     fn effective_render_size_windowed_subtraction() {
-        // Windowed mode subtracts 2 from each dimension, clamping to 1.
-        if !is_fullscreen_enabled() {
-            assert_eq!(effective_render_size(120, 40), (118, 38));
-            assert_eq!(effective_render_size(2, 2), (1, 1));
-            assert_eq!(effective_render_size(1, 1), (1, 1));
-        }
+        assert_eq!(effective_render_size_inner(120, 40, false), (118, 38));
+        assert_eq!(effective_render_size_inner(2, 2, false), (1, 1));
+        assert_eq!(effective_render_size_inner(1, 1, false), (1, 1));
     }
 
     #[test]
     fn compute_pty_layout_pane_origin() {
-        let (_, _, pane_col0, _) = compute_pty_layout(120, 40);
+        let (_, _, pane_col0, _) = compute_pty_layout_inner(120, 40, true);
         assert_eq!(pane_col0, LEFT_COL_WIDTH + 1);
     }
 
     #[test]
     fn compute_pty_layout_dimensions_always_at_least_two() {
-        for (cols, rows) in [(120, 40), (10, 10), (0, 0), (60, 20)] {
-            let (pty_rows, pty_cols, _, _) = compute_pty_layout(cols, rows);
-            assert!(pty_rows >= 2, "pty_rows < 2 for ({cols}, {rows})");
-            assert!(pty_cols >= 2, "pty_cols < 2 for ({cols}, {rows})");
+        for fullscreen in [true, false] {
+            for (cols, rows) in [(120, 40), (10, 10), (0, 0), (60, 20)] {
+                let (pty_rows, pty_cols, _, _) = compute_pty_layout_inner(cols, rows, fullscreen);
+                assert!(
+                    pty_rows >= 2,
+                    "pty_rows < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
+                );
+                assert!(
+                    pty_cols >= 2,
+                    "pty_cols < 2 for ({cols}, {rows}, fullscreen={fullscreen})"
+                );
+            }
         }
     }
 
     #[test]
-    fn agent_rows_rounding_half_up() {
-        // For 38 content rows (40 - 2 bars in fullscreen), 25% = 9.5 → rounds to 10.
-        // Formula: (38 * 25 + 50) / 100 = 10
-        if is_fullscreen_enabled() {
-            let (_, _, _, pane_row0) = compute_pty_layout(120, 40);
-            // pane_row0 = 1 (status bar) + agent_rows + 2 (chrome top border + header)
-            assert_eq!(pane_row0, 1 + 10 + 2);
-        }
+    fn agent_rows_rounding_half_up_fullscreen() {
+        // 40 rows - 2 bars = 38 content rows. 25% = 9.5 → rounds to 10.
+        let (_, _, _, pane_row0) = compute_pty_layout_inner(120, 40, true);
+        // pane_row0 = 1 (status bar) + agent_rows(10) + 2 (chrome top border + header)
+        assert_eq!(pane_row0, 1 + 10 + 2);
+    }
+
+    #[test]
+    fn agent_rows_rounding_half_up_windowed() {
+        // Windowed: 40-2=38 render rows, 38-2=36 content rows. 25% = 9.0 → exactly 9.
+        let (_, _, _, pane_row0) = compute_pty_layout_inner(120, 40, false);
+        assert_eq!(pane_row0, 1 + 9 + 2);
     }
 
     #[test]
     fn compute_pty_layout_pane_row0_positive() {
-        let (_, _, _, pane_row0) = compute_pty_layout(120, 40);
-        assert!(pane_row0 > 0);
+        for fullscreen in [true, false] {
+            let (_, _, _, pane_row0) = compute_pty_layout_inner(120, 40, fullscreen);
+            assert!(
+                pane_row0 > 0,
+                "pane_row0 not positive for fullscreen={fullscreen}"
+            );
+        }
     }
 }

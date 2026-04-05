@@ -112,7 +112,10 @@ mod tests {
     fn delete_selected_agent_skips_local_directory_removal_for_remote_repository() {
         let repo_id = RepositoryId("repo-1".into());
         let agent_id = AgentId("agent-1".into());
-        let missing_remote_path = PathBuf::from("/definitely/not/local/remote-agent-path");
+
+        // Use a real temp directory so the work_dir.exists() guard is exercised.
+        let tmp_dir = std::env::temp_dir().join("jefe-test-remote-skip");
+        std::fs::create_dir_all(&tmp_dir).expect("create temp dir");
 
         let mut repository = Repository::new(
             repo_id.clone(),
@@ -132,7 +135,7 @@ mod tests {
             agent_id.clone(),
             repo_id.clone(),
             "Agent One".into(),
-            missing_remote_path.clone(),
+            tmp_dir.clone(),
         );
         agent.status = crate::domain::AgentStatus::Running;
 
@@ -150,5 +153,13 @@ mod tests {
         assert!(state.agents.is_empty());
         assert!(state.repositories[0].remote.enabled);
         assert_eq!(state.selected_agent_index, None);
+        // The directory must still exist because remote repos skip removal.
+        assert!(
+            tmp_dir.exists(),
+            "remote agent work dir should not be deleted"
+        );
+
+        // Clean up.
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }
