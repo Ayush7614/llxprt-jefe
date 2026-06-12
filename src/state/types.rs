@@ -396,7 +396,7 @@ pub struct IssuesState {
     pub draft_notice: Option<String>,
 }
 
-/// Layout constants matching issue_detail.rs.
+/// Layout constants matching issue_detail.rs and issues.rs.
 const DETAIL_HEADER_ROWS: usize = 5;
 const DETAIL_CHROME_ROWS: usize = 4;
 
