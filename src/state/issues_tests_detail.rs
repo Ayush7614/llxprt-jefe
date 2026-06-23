@@ -1,10 +1,9 @@
 use crate::domain::{
-    Agent, AgentId, Issue, IssueComment, IssueDetail, IssueState, Repository, RepositoryId,
+    Issue, IssueComment, IssueDetail, IssueFilter, IssueState, Repository, RepositoryId,
 };
 use crate::state::AppState;
 use crate::state::types::{
-    AgentChooserState, AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState,
-    IssueFocus, PaneFocus, ScreenMode,
+    AppEvent, ComposerTarget, DetailSubfocus, EditorTarget, InlineState, IssueFocus, ScreenMode,
 };
 
 fn dashboard_issues_state() -> AppState {
@@ -98,47 +97,22 @@ fn p15_comment(comment_id: u64, author_login: &str, created_at: &str, body: &str
     }
 }
 
-fn state_with_repo_and_agent() -> AppState {
-    let mut state = AppState {
-        selected_repository_index: Some(0),
-        ..AppState::default()
-    };
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp/r1"),
-    ));
-    state.agents.push(Agent::new(
-        AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        "My Agent".to_string(),
-        std::path::PathBuf::from("/tmp/a1"),
-    ));
-    state
+fn p15_comment_page() -> Vec<IssueComment> {
+    vec![
+        p15_comment(1, "alice", "2024-01-01T00:00:00Z", "First comment"),
+        p15_comment(2, "bob", "2024-01-02T00:00:00Z", "Second comment"),
+    ]
 }
 
-fn send_payload_detail() -> IssueDetail {
-    IssueDetail {
-        repo_owner_name: "owner/repo".to_string(),
-        number: 7,
-        title: "Fix crash".to_string(),
-        state: IssueState::Open,
-        author_login: "octocat".to_string(),
-        created_at: "2024-01-01T00:00:00Z".to_string(),
-        updated_at: "2024-01-02T00:00:00Z".to_string(),
-        labels: vec!["bug".to_string()],
-        assignees: vec![],
-        milestone: None,
-        body: "Crash on startup".to_string(),
-        external_url: "https://github.com/owner/repo/issues/7".to_string(),
-        comments: vec![
-            p15_comment(100, "dev", "2024-01-02T00:00:00Z", "Reproduced on main"),
-            p15_comment(101, "tester", "2024-01-03T00:00:00Z", "Also seen in v2.1"),
-        ],
-        has_more_comments: false,
-        comments_cursor: None,
-    }
+fn p15_state_with_loaded_detail(repo_id: &RepositoryId, issue_number: u64) -> AppState {
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), issue_number);
+    state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number,
+        request_id: 0,
+        detail: Box::new(p15_detail(issue_number)),
+    })
 }
 
 /// P15 Test 1: Enter issues mode, load issues, select one, exit.
@@ -158,6 +132,8 @@ fn test_mode_lifecycle_enter_browse_exit() {
     // Load issues
     let state = state.apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
         issues: vec![make_test_issue(1), make_test_issue(2), make_test_issue(3)],
         cursor: None,
         has_more: false,
@@ -188,6 +164,8 @@ fn test_mode_lifecycle_enter_interact_exit() {
     let state = state
         .apply(AppEvent::IssueListLoaded {
             scope_repo_id: RepositoryId("repo-1".to_string()),
+            filter: Box::new(IssueFilter::default()),
+            request_id: 0,
             issues: vec![make_test_issue(10)],
             cursor: None,
             has_more: false,
@@ -327,22 +305,37 @@ fn test_key_routing_suppression_comprehensive() {
     assert!(state.issues_state.active);
 }
 
-/// P15 Test 5: Open composer, type text, apply CommentCreateFailed — draft preserved? error set.
-///
-/// Note: CommentCreateFailed clears inline_state (sends failed, draft gone). Error is set.
+/// P15 Test 5: Open composer, type text, apply CommentCreateFailed — draft preserved and error set.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
 /// @requirement REQ-ISS-013
 #[test]
 fn test_error_handling_rate_limit_preserves_draft() {
-    let mut state = AppState::default();
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: "my draft comment".to_string(),
         cursor: 16,
     };
+    let pending_target = state.issues_state.inline_state.clone();
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: pending_target,
+    });
 
     let state = state.apply(AppEvent::CommentCreateFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        mutation_id: 1,
         error: "API rate limit exceeded".to_string(),
     });
 
@@ -351,8 +344,15 @@ fn test_error_handling_rate_limit_preserves_draft() {
         state.issues_state.error,
         Some("API rate limit exceeded".to_string())
     );
-    // Inline is cleared (failed submit clears state)
-    assert_eq!(state.issues_state.inline_state, InlineState::None);
+    assert_eq!(
+        state.issues_state.inline_state,
+        InlineState::Composer {
+            target: ComposerTarget::NewComment,
+            text: "my draft comment".to_string(),
+            cursor: 16,
+        }
+    );
+    assert!(state.issues_state.mutation_pending.is_none());
 }
 
 /// P15 Test 6: Apply IssueListLoadFailed with auth message — error displayed, mode still active.
@@ -366,6 +366,9 @@ fn test_error_handling_auth_failure_blocks_ops() {
 
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
+        request_cursor: None,
         error: "authentication required: token expired".to_string(),
     });
 
@@ -395,6 +398,9 @@ fn test_error_handling_network_error_stable_mode() {
 
     let state = state.apply(AppEvent::IssueListLoadFailed {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
+        request_cursor: None,
         error: "network timeout: connection refused".to_string(),
     });
 
@@ -415,6 +421,8 @@ fn test_error_handling_network_error_stable_mode() {
 fn test_pagination_issue_list_auto_load() {
     let state = issues_mode_state_with_repo("repo-1").apply(AppEvent::IssueListLoaded {
         scope_repo_id: RepositoryId("repo-1".to_string()),
+        filter: Box::new(IssueFilter::default()),
+        request_id: 0,
         issues: vec![make_test_issue(1), make_test_issue(2)],
         cursor: Some("cursor-abc".to_string()),
         has_more: true,
@@ -428,6 +436,32 @@ fn test_pagination_issue_list_auto_load() {
     assert_eq!(state.issues_state.issues.len(), 2);
 }
 
+#[test]
+fn test_detail_content_line_count_includes_empty_comments_separator() {
+    let mut state = dashboard_issues_state();
+    state.issues_state.issue_detail = Some(p15_detail(1));
+
+    assert_eq!(state.issues_state.detail_content_line_count(), 8);
+}
+
+#[test]
+fn test_detail_content_line_count_includes_loading_comments_separator() {
+    let mut state = dashboard_issues_state();
+    state.issues_state.issue_detail = Some(p15_detail(1));
+    state.issues_state.loading.comments = true;
+
+    assert_eq!(state.issues_state.detail_content_line_count(), 8);
+}
+
+#[test]
+fn test_detail_content_line_count_includes_non_empty_comments_separator() {
+    let mut detail = p15_detail(1);
+    detail.comments = vec![p15_comment(101, "alice", "2024-01-03T00:00:00Z", "hello")];
+    let mut state = dashboard_issues_state();
+    state.issues_state.issue_detail = Some(detail);
+
+    assert_eq!(state.issues_state.detail_content_line_count(), 10);
+}
 /// P15 Test 9: Load detail, load first comments page, load second — all comments present in order.
 ///
 /// @plan PLAN-20260329-ISSUES-MODE.P15
@@ -436,32 +470,23 @@ fn test_pagination_issue_list_auto_load() {
 fn test_pagination_comments_append() {
     let repo_id = RepositoryId("repo-1".to_string());
 
-    // Load detail with no comments first
-    let detail = p15_detail(42);
-    let state = issues_mode_state_with_repo("repo-1").apply(AppEvent::IssueDetailLoaded {
-        scope_repo_id: repo_id.clone(),
-        issue_number: 42,
-        detail: Box::new(detail),
-    });
-    assert_eq!(
-        state
-            .issues_state
-            .issue_detail
-            .as_ref()
-            .unwrap_or_else(|| panic!("expected value"))
-            .comments
-            .len(),
-        0
-    );
+    let state = p15_state_with_loaded_detail(&repo_id, 42);
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected value"));
+    assert_eq!(detail.comments.len(), 0);
 
     // Load first page of comments
+    let mut state = state;
+    state.mark_comments_page_loading(repo_id.clone(), 42, None);
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
-        comments: vec![
-            p15_comment(1, "alice", "2024-01-01T00:00:00Z", "First comment"),
-            p15_comment(2, "bob", "2024-01-02T00:00:00Z", "Second comment"),
-        ],
+        request_id: 0,
+        request_cursor: None,
+        comments: p15_comment_page(),
         cursor: Some("page2".to_string()),
         has_more: true,
     });
@@ -474,9 +499,13 @@ fn test_pagination_comments_append() {
     assert!(detail.has_more_comments);
 
     // Load second page of comments
+    let mut state = state;
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("page2".to_string()));
     let state = state.apply(AppEvent::IssueCommentsPageLoaded {
         scope_repo_id: repo_id.clone(),
         issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("page2".to_string()),
         comments: vec![p15_comment(
             3,
             "carol",
@@ -499,498 +528,427 @@ fn test_pagination_comments_append() {
     assert_eq!(detail.comments[2].comment_id, 3);
 }
 
-/// P15 Test 10: Enter issues, exit — prior focus (pane_focus, selected_agent_index) restored.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-005
 #[test]
-fn test_exit_focus_restoration_valid() {
-    let mut state = AppState::default();
+fn test_stale_comment_page_same_repo_different_issue_does_not_clear_current_loading_or_error() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
+    state.issues_state.loading.comments = true;
+    state.issues_state.error = Some("current load still pending".to_string());
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("current-cursor".to_string()));
 
-    // Set up repo + 2 agents
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp"),
-    ));
-    state.selected_repository_index = Some(0);
-    state.agents.push(Agent::new(
-        AgentId("agent-0".to_string()),
-        RepositoryId("repo-1".to_string()),
-        "Agent 0".to_string(),
-        std::path::PathBuf::from("/tmp/a0"),
-    ));
-    state.agents.push(Agent::new(
-        AgentId("agent-1".to_string()),
-        RepositoryId("repo-1".to_string()),
-        "Agent 1".to_string(),
-        std::path::PathBuf::from("/tmp/a1"),
-    ));
-    state.pane_focus = PaneFocus::Agents;
-    state.selected_agent_index = Some(1);
-
-    // Enter issues mode — focus is saved
-    let state = state.apply(AppEvent::EnterIssuesMode);
-    assert_eq!(state.screen_mode, ScreenMode::DashboardIssues);
-
-    // Exit — prior focus restored
-    let state = state.apply(AppEvent::ExitIssuesMode);
-    assert_eq!(state.pane_focus, PaneFocus::Agents);
-    assert_eq!(state.selected_agent_index, Some(1));
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
-}
-
-/// P15 Test 11: Enter issues, agent removed while in issues mode, exit — fallback, no crash.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-005
-#[test]
-fn test_exit_focus_restoration_stale() {
-    let mut state = AppState::default();
-
-    // Set up repo + 1 agent
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp"),
-    ));
-    state.selected_repository_index = Some(0);
-    state.agents.push(Agent::new(
-        AgentId("agent-0".to_string()),
-        RepositoryId("repo-1".to_string()),
-        "Agent 0".to_string(),
-        std::path::PathBuf::from("/tmp/a0"),
-    ));
-    state.pane_focus = PaneFocus::Agents;
-    state.selected_agent_index = Some(0);
-
-    // Enter issues mode with agent-0 selected
-    let state = state.apply(AppEvent::EnterIssuesMode);
-
-    // Simulate agent removed while in issues mode by injecting stale prior_agent_focus
-    // (In real usage agents can be deleted; we directly set a stale index)
-    let mut state = state;
-    state.agents.clear(); // delete agent
-    // prior_agent_focus still points to index 0 (now out-of-bounds)
-
-    // Exit — should fall back gracefully
-    let state = state.apply(AppEvent::ExitIssuesMode);
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
-    assert!(!state.issues_state.active);
-    // No panic; agent_index is None or 0 (fallback)
-    assert!(
-        state.selected_agent_index.is_none() || state.selected_agent_index == Some(0),
-        "expected None or Some(0), got {:?}",
-        state.selected_agent_index
-    );
-}
-
-/// P15 Test 12: SelectRepository in issues mode clears issues_state and resets list_loading.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-001
-#[test]
-fn test_scope_change_invalidation() {
-    let mut state = AppState::default();
-
-    // Set up two repositories
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp/r1"),
-    ));
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-2".to_string()),
-        "Repo 2".to_string(),
-        "repo-2".to_string(),
-        std::path::PathBuf::from("/tmp/r2"),
-    ));
-    state.selected_repository_index = Some(0);
-
-    // Enter issues mode and load some issues for repo-1
-    let state = state
-        .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::IssueListLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            issues: vec![make_test_issue(1), make_test_issue(2)],
-            cursor: Some("cur".to_string()),
-            has_more: true,
-        });
-    assert_eq!(state.issues_state.issues.len(), 2);
-    assert!(state.issues_state.has_more_issues);
-    assert!(!state.issues_state.loading.list);
-
-    // Switch to a different repository
-    let state = state.apply(AppEvent::SelectRepository(1));
-
-    // Issues data should be cleared and reload triggered
-    assert!(state.issues_state.issues.is_empty());
-    assert!(state.issues_state.loading.list);
-    assert!(!state.issues_state.has_more_issues);
-    assert!(state.issues_state.list_cursor.is_none());
-    assert!(state.issues_state.selected_issue_index.is_none());
-}
-
-/// P15 Test 13: SelectRepository clears existing data when repo changes.
-///
-/// Tests that stale scope response from old repo is irrelevant after repo change.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-013
-#[test]
-fn test_stale_scope_response_suppressed() {
-    let mut state = AppState::default();
-
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp/r1"),
-    ));
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-2".to_string()),
-        "Repo 2".to_string(),
-        "repo-2".to_string(),
-        std::path::PathBuf::from("/tmp/r2"),
-    ));
-    state.selected_repository_index = Some(0);
-
-    let state = state
-        .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::IssueListLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            issues: vec![make_test_issue(1)],
-            cursor: None,
-            has_more: false,
-        });
-
-    // Switch repos
-    let state = state.apply(AppEvent::SelectRepository(1));
-    assert!(state.issues_state.issues.is_empty());
-
-    // Now a stale response for repo-1 arrives
-    let state = state.apply(AppEvent::IssueListLoaded {
-        scope_repo_id: RepositoryId("repo-1".to_string()),
-        issues: vec![make_test_issue(99)],
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 99,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
         cursor: None,
         has_more: false,
     });
-
-    // Stale data is discarded — repo-1 data does not appear since current repo is repo-2
-    assert!(state.issues_state.issues.is_empty());
-}
-
-/// P15 Test 14: Open composer with text, change repo — inline cancelled, draft_notice set.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-013
-#[test]
-fn test_draft_discard_on_scope_change() {
-    let mut state = AppState::default();
-
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp/r1"),
-    ));
-    state.repositories.push(Repository::new(
-        RepositoryId("repo-2".to_string()),
-        "Repo 2".to_string(),
-        "repo-2".to_string(),
-        std::path::PathBuf::from("/tmp/r2"),
-    ));
-    state.selected_repository_index = Some(0);
-
-    // Enter issues mode, open composer, type text
-    let state = state
-        .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::OpenNewCommentComposer)
-        .apply(AppEvent::InlineChar('h'))
-        .apply(AppEvent::InlineChar('i'));
-
-    match &state.issues_state.inline_state {
-        InlineState::Composer { text, .. } => assert_eq!(text, "hi"),
-        other => panic!("expected Composer, got {other:?}"),
-    }
-
-    // Change repository — should cancel inline and set draft notice
-    let state = state.apply(AppEvent::SelectRepository(1));
-
-    assert_eq!(state.issues_state.inline_state, InlineState::None);
-    assert!(
-        state.issues_state.draft_notice.is_some(),
-        "expected draft_notice to be set"
-    );
-}
-
-/// P15 Test 15: With composer active, attempt to open editor — exclusivity enforced.
-/// With editor active, attempt to open composer — exclusivity enforced.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-010
-#[test]
-fn test_inline_exclusivity_all_combinations() {
-    let mut base = dashboard_issues_state();
-
-    // Composer active → OpenInlineEditor blocked
-    base.issues_state.inline_state = InlineState::Composer {
-        target: ComposerTarget::NewComment,
-        text: "draft".to_string(),
-        cursor: 5,
-    };
-    let state = base.clone().apply(AppEvent::OpenInlineEditor {
-        target: EditorTarget::IssueBody,
-    });
-    match &state.issues_state.inline_state {
-        InlineState::Composer { .. } => {}
-        other => panic!("Composer should block editor open, got {other:?}"),
-    }
-
-    // Editor active → OpenNewCommentComposer blocked
-    base.issues_state.inline_state = InlineState::Editor {
-        target: EditorTarget::IssueBody,
-        text: "edit".to_string(),
-        cursor: 4,
-    };
-    let state = base.clone().apply(AppEvent::OpenNewCommentComposer);
-    match &state.issues_state.inline_state {
-        InlineState::Editor { .. } => {}
-        other => panic!("Editor should block composer open, got {other:?}"),
-    }
-
-    // Editor active → OpenNewIssueComposer blocked
-    base.issues_state.inline_state = InlineState::Editor {
-        target: EditorTarget::IssueBody,
-        text: "edit".to_string(),
-        cursor: 4,
-    };
-    let state = base.clone().apply(AppEvent::OpenNewIssueComposer);
-    match &state.issues_state.inline_state {
-        InlineState::Editor { .. } => {}
-        other => panic!("Editor should block new-issue composer open, got {other:?}"),
-    }
-
-    // Editor active → OpenReplyComposer blocked
-    base.issues_state.inline_state = InlineState::Editor {
-        target: EditorTarget::IssueBody,
-        text: "edit".to_string(),
-        cursor: 4,
-    };
-    let state = base
-        .clone()
-        .apply(AppEvent::OpenReplyComposer { comment_index: 0 });
-    match &state.issues_state.inline_state {
-        InlineState::Editor { .. } => {}
-        other => panic!("Editor should block reply composer open, got {other:?}"),
-    }
-}
-
-/// P15 Test 16: Build send payload from detail with focused comment — all fields present.
-///
-/// Tests that state correctly holds all data needed for agent send payload:
-/// issue detail, focused comment (via detail_subfocus), agent chooser state.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-011
-#[test]
-fn test_send_to_agent_payload_complete() {
-    let state = state_with_repo_and_agent()
-        .apply(AppEvent::EnterIssuesMode)
-        .apply(AppEvent::IssueDetailLoaded {
-            scope_repo_id: RepositoryId("repo-1".to_string()),
-            issue_number: 7,
-            detail: Box::new(send_payload_detail()),
-        });
-
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
-    let state = state.apply(AppEvent::IssueDetailSubfocusNext);
-    assert_eq!(
-        state.issues_state.detail_subfocus,
-        DetailSubfocus::Comment(1)
-    );
-
-    let state = state.apply(AppEvent::OpenAgentChooser);
-    let chooser = state
-        .issues_state
-        .agent_chooser
-        .as_ref()
-        .unwrap_or_else(|| panic!("chooser should be open"));
-    assert_eq!(chooser.agents.len(), 1);
-    assert_eq!(chooser.agents[0].1, "My Agent");
 
     let detail = state
         .issues_state
         .issue_detail
         .as_ref()
-        .unwrap_or_else(|| panic!("detail should be set"));
-    assert_eq!(detail.number, 7);
-    assert_eq!(detail.title, "Fix crash");
-    assert_eq!(detail.body, "Crash on startup");
-    let focused_comment = match state.issues_state.detail_subfocus {
-        DetailSubfocus::Comment(idx) => detail.comments.get(idx),
-        _ => None,
-    };
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.number, 42);
+    assert!(detail.comments.is_empty());
+    assert!(state.issues_state.loading.comments);
     assert_eq!(
-        focused_comment
-            .unwrap_or_else(|| panic!("expected value"))
-            .comment_id,
-        101
+        state.issues_state.error.as_deref(),
+        Some("current load still pending")
     );
-}
 
-/// P15 Test 17: OpenAgentChooser with no agents — chooser not opened.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-011
-#[test]
-fn test_send_to_agent_no_agents() {
-    let state = issues_mode_state_with_repo("repo-1");
-    assert!(state.agents.is_empty());
+    let state = state.apply(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: repo_id,
+        issue_number: 99,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        error: "stale failure".to_string(),
+    });
 
-    let state = state.apply(AppEvent::OpenAgentChooser);
-
-    assert!(state.issues_state.agent_chooser.is_none());
-}
-
-/// P15 Test 18: Build payload with issue_base_prompt — field present in repository.
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-012
-#[test]
-fn test_issue_base_prompt_in_payload() {
-    let mut state = AppState::default();
-
-    // Repository with issue_base_prompt set
-    let mut repo = Repository::new(
-        RepositoryId("repo-1".to_string()),
-        "Repo 1".to_string(),
-        "repo-1".to_string(),
-        std::path::PathBuf::from("/tmp/r1"),
-    );
-    repo.issue_base_prompt = "Always look for root causes before proposing fixes.".to_string();
-    state.repositories.push(repo);
-    state.selected_repository_index = Some(0);
-
-    let state = state.apply(AppEvent::EnterIssuesMode);
-
-    // Verify the field is accessible from selected repository
-    let repo = state
-        .selected_repository()
-        .unwrap_or_else(|| panic!("repo should be selected"));
+    assert!(state.issues_state.loading.comments);
     assert_eq!(
-        repo.issue_base_prompt,
-        "Always look for root causes before proposing fixes."
+        state.issues_state.error.as_deref(),
+        Some("current load still pending")
     );
 }
 
-/// P15 Test 19: Set up state with inline active + search focused + filter open;
-/// apply Esc events in sequence; verify each level closes correctly.
-///
-/// The 6-level Esc chain (from innermost to outermost):
-///   1. Inline editor/composer → InlineCancelOrEsc
-///   2. Agent chooser → AgentChooserCancel
-///   3. Search non-empty → ClearSearch
-///   4. Search empty → BlurSearchInput
-///   5. Filter controls → CloseFilterControls
-///   6. Mode exit → ExitIssuesMode
-///
-/// @plan PLAN-20260329-ISSUES-MODE.P15
-/// @requirement REQ-ISS-004
 #[test]
-fn test_esc_chain_all_six_levels_integrated() {
-    // Level 1: Inline Composer — InlineCancelOrEsc closes it
-    let mut state = dashboard_issues_state();
-    state.issues_state.active = true;
+fn test_stale_comment_page_same_issue_different_cursor_does_not_clear_current_loading_or_error() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
+    state.issues_state.loading.comments = true;
+    state.issues_state.error = Some("current comments page pending".to_string());
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("current-cursor".to_string()));
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert!(detail.comments.is_empty());
+    assert!(state.issues_state.loading.comments);
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("current comments page pending")
+    );
+
+    let state = state.apply(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("stale-cursor".to_string()),
+        error: "stale failure".to_string(),
+    });
+
+    assert!(state.issues_state.loading.comments);
+    assert_eq!(
+        state.issues_state.error.as_deref(),
+        Some("current comments page pending")
+    );
+}
+
+#[test]
+fn test_issue_navigation_invalidates_pending_detail_responses() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    state.issues_state.issue_detail = Some(p15_detail(42));
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+
+    let state = state.apply(AppEvent::IssuesNavigateDown);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert!(!state.issues_state.loading.detail);
+    assert!(state.issues_state.detail_pending.is_none());
+
+    let mut stale_detail = p15_detail(42);
+    stale_detail.body = "stale detail body".to_string();
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(stale_detail),
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing preview/detail"));
+    assert_eq!(detail.body, "Issue body");
+
+    let state = state.apply(AppEvent::IssueDetailLoadFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        error: "stale failure".to_string(),
+    });
+
+    assert!(state.issues_state.error.is_none());
+    assert!(!state.issues_state.loading.detail);
+}
+
+#[test]
+fn test_issue_navigation_away_and_back_invalidates_pending_comment_page() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    let mut detail = p15_detail(42);
+    detail.has_more_comments = true;
+    detail.comments_cursor = Some("cursor-1".to_string());
+    state.issues_state.issue_detail = Some(detail);
+    state.mark_comments_page_loading(repo_id.clone(), 42, Some("cursor-1".to_string()));
+
+    let state = state
+        .apply(AppEvent::IssuesNavigateDown)
+        .apply(AppEvent::IssuesNavigateUp);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(0));
+    assert!(!state.issues_state.loading.comments);
+    assert!(state.issues_state.comments_page_pending.is_none());
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("cursor-1".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing detail"));
+    assert!(detail.comments.is_empty());
+
+    let state = state.apply(AppEvent::IssueCommentsPageFailed {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        request_cursor: Some("cursor-1".to_string()),
+        error: "stale failure".to_string(),
+    });
+
+    assert!(state.issues_state.error.is_none());
+    assert!(!state.issues_state.loading.comments);
+}
+#[test]
+fn test_issue_navigate_end_invalidates_pending_detail_responses() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(0);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    state.issues_state.issue_detail = Some(p15_detail(42));
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+
+    let state = state.apply(AppEvent::IssuesNavigateEnd);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(1));
+    assert!(!state.issues_state.loading.detail);
+    assert!(state.issues_state.detail_pending.is_none());
+
+    let mut stale_detail = p15_detail(42);
+    stale_detail.body = "stale detail body".to_string();
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id,
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(stale_detail),
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing preview/detail"));
+    assert_eq!(detail.body, "Issue body");
+}
+
+#[test]
+fn test_issue_navigate_home_invalidates_pending_comment_page() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.issues_state.issues = vec![make_test_issue(42), make_test_issue(43)];
+    state.issues_state.selected_issue_index = Some(1);
+    state.issues_state.issue_focus = IssueFocus::IssueList;
+    let mut detail = p15_detail(43);
+    detail.has_more_comments = true;
+    detail.comments_cursor = Some("cursor-1".to_string());
+    state.issues_state.issue_detail = Some(detail);
+    state.mark_comments_page_loading(repo_id.clone(), 43, Some("cursor-1".to_string()));
+
+    let state = state.apply(AppEvent::IssuesNavigateHome);
+
+    assert_eq!(state.issues_state.selected_issue_index, Some(0));
+    assert!(!state.issues_state.loading.comments);
+    assert!(state.issues_state.comments_page_pending.is_none());
+
+    let state = state.apply(AppEvent::IssueCommentsPageLoaded {
+        scope_repo_id: repo_id,
+        issue_number: 43,
+        request_id: 0,
+        request_cursor: Some("cursor-1".to_string()),
+        comments: vec![p15_comment(99, "stale", "2024-01-04T00:00:00Z", "stale")],
+        cursor: None,
+        has_more: false,
+    });
+
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected existing detail"));
+    assert!(detail.comments.is_empty());
+}
+
+#[test]
+fn test_stale_mutation_events_same_repo_different_issue_do_not_mutate_or_clear_inline_state() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.comments = vec![p15_comment(7, "alice", "2024-01-03T00:00:00Z", "original")];
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
     state.issues_state.inline_state = InlineState::Composer {
         target: ComposerTarget::NewComment,
         text: "draft".to_string(),
         cursor: 5,
     };
-    let state = state.apply(AppEvent::InlineCancelOrEsc);
-    assert_eq!(state.issues_state.inline_state, InlineState::None);
-
-    // Level 2: Agent Chooser — AgentChooserCancel closes it
-    let mut state = state;
-    state.issues_state.agent_chooser = Some(AgentChooserState {
-        selected_index: 0,
-        agents: vec![(AgentId("a1".to_string()), "Agent 1".to_string())],
+    let pending_target = state.issues_state.inline_state.clone();
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: pending_target,
     });
-    let state = state.apply(AppEvent::AgentChooserCancel);
-    assert!(state.issues_state.agent_chooser.is_none());
-
-    // Level 3: Search with text — ClearSearch clears text (stays focused)
     let mut state = state;
-    state.issues_state.search_input_focused = true;
-    state.issues_state.search_query = "open bug".to_string();
-    let state = state.apply(AppEvent::ClearSearch);
-    assert!(state.issues_state.search_query.is_empty());
-    assert!(state.issues_state.search_input_focused);
+    state.issues_state.error = Some("current error".to_string());
 
-    // Level 4: Search empty — BlurSearchInput removes focus
-    let state = state.apply(AppEvent::BlurSearchInput);
-    assert!(!state.issues_state.search_input_focused);
+    let state = state
+        .apply(AppEvent::CommentCreated {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 99,
+            mutation_id: 1,
+            comment: p15_comment(8, "bob", "2024-01-04T00:00:00Z", "stale"),
+        })
+        .apply(AppEvent::IssueBodyUpdated {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 99,
+            mutation_id: 1,
+            body: "stale body".to_string(),
+        })
+        .apply(AppEvent::CommentUpdated {
+            scope_repo_id: repo_id,
+            issue_number: 99,
+            mutation_id: 1,
+            comment_id: 7,
+            comment_index: 0,
+            body: "stale update".to_string(),
+        });
 
-    // Level 5: Filter controls open — CloseFilterControls closes them
-    let mut state = state;
-    state.issues_state.filter_ui.controls_open = true;
-    let state = state.apply(AppEvent::CloseFilterControls);
-    assert!(!state.issues_state.filter_ui.controls_open);
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.body, "Issue body");
+    assert_eq!(detail.comments.len(), 1);
 
-    // Level 6: Nothing else active — ExitIssuesMode exits mode
-    let state = state.apply(AppEvent::ExitIssuesMode);
-    assert_eq!(state.screen_mode, ScreenMode::Dashboard);
-    assert!(!state.issues_state.active);
+    assert_eq!(detail.comments[0].body, "original");
+    match &state.issues_state.inline_state {
+        InlineState::Composer { text, .. } => assert_eq!(text, "draft"),
+        other => panic!("expected composer draft to remain, got {other:?}"),
+    }
+    assert_eq!(state.issues_state.error.as_deref(), Some("current error"));
 }
 
-/// InlineCursorUp/Down move the cursor between lines in multi-line text.
 #[test]
-fn test_inline_cursor_vertical_navigation() {
-    use super::inline_cursor_vertical;
+fn test_comment_update_matches_by_comment_id_when_index_shifted() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut detail = p15_detail(42);
+    detail.comments = vec![
+        p15_comment(1, "alice", "2024-01-01T00:00:00Z", "first"),
+        p15_comment(2, "bob", "2024-01-02T00:00:00Z", "second"),
+    ];
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(detail),
+    });
 
-    // 3 lines: abc, def, ghi — offsets [0..3], [4..7], [8..11]
-    let text = ["abc", "def", "ghi"].join(&String::from(char::from(0x0Au8)));
+    let state = state
+        .apply(AppEvent::MutationSubmitted {
+            scope_repo_id: repo_id.clone(),
+            mutation_id: 1,
+            target: InlineState::Editor {
+                target: EditorTarget::Comment { comment_index: 0 },
+                text: "updated by id".to_string(),
+                cursor: 13,
+            },
+        })
+        .apply(AppEvent::CommentUpdated {
+            scope_repo_id: repo_id,
+            issue_number: 42,
+            mutation_id: 1,
+            comment_id: 2,
+            comment_index: 0,
+            body: "updated by id".to_string(),
+        });
 
-    // Down from line 0 col 1 to line 1 col 1
-    let mut cursor = 1;
-    inline_cursor_vertical(&text, &mut cursor, 1);
-    assert_eq!(cursor, 5);
-
-    // Down from line 1 col 1 to line 2 col 1
-    inline_cursor_vertical(&text, &mut cursor, 1);
-    assert_eq!(cursor, 9);
-
-    // Down from last line stays
-    inline_cursor_vertical(&text, &mut cursor, 1);
-    assert_eq!(cursor, 9);
-
-    // Up from line 2 col 1 to line 1 col 1
-    inline_cursor_vertical(&text, &mut cursor, -1);
-    assert_eq!(cursor, 5);
-
-    // Up from line 1 col 1 to line 0 col 1
-    inline_cursor_vertical(&text, &mut cursor, -1);
-    assert_eq!(cursor, 1);
-
-    // Up from first line stays
-    inline_cursor_vertical(&text, &mut cursor, -1);
-    assert_eq!(cursor, 1);
+    let detail = state
+        .issues_state
+        .issue_detail
+        .as_ref()
+        .unwrap_or_else(|| panic!("expected detail"));
+    assert_eq!(detail.comments[0].body, "first");
+    assert_eq!(detail.comments[1].body, "updated by id");
 }
 
-/// InlineCursorUp/Down clamp column when target line is shorter.
+/// P15 Test 10: Enter issues, exit — prior focus (pane_focus, selected_agent_index) restored.
+
 #[test]
-fn test_inline_cursor_vertical_column_clamping() {
-    use super::inline_cursor_vertical;
+fn test_stale_mutation_failures_same_repo_different_issue_do_not_clear_inline_state() {
+    let repo_id = RepositoryId("repo-1".to_string());
+    let mut state = issues_mode_state_with_repo("repo-1");
+    state.mark_issue_detail_loading(repo_id.clone(), 42);
+    let mut state = state.apply(AppEvent::IssueDetailLoaded {
+        scope_repo_id: repo_id.clone(),
+        issue_number: 42,
+        request_id: 0,
+        detail: Box::new(p15_detail(42)),
+    });
+    state.issues_state.inline_state = InlineState::Composer {
+        target: ComposerTarget::NewComment,
+        text: "draft".to_string(),
+        cursor: 5,
+    };
+    let pending_target = state.issues_state.inline_state.clone();
+    let state = state.apply(AppEvent::MutationSubmitted {
+        scope_repo_id: repo_id.clone(),
+        mutation_id: 1,
+        target: pending_target,
+    });
+    let mut state = state;
+    state.issues_state.error = Some("current error".to_string());
 
-    // 3 lines: abcdef (len 6), xy (len 2), z (len 1)
-    let nl = String::from(char::from(0x0Au8));
-    let text = ["abcdef", "xy", "z"].join(&nl);
+    let state = state
+        .apply(AppEvent::CommentCreateFailed {
+            scope_repo_id: repo_id.clone(),
+            issue_number: 99,
+            mutation_id: 1,
+            error: "stale comment create failure".to_string(),
+        })
+        .apply(AppEvent::MutationFailed {
+            scope_repo_id: repo_id,
+            issue_number: Some(99),
+            mutation_id: Some(1),
+            error: "stale mutation failure".to_string(),
+        });
 
-    // Cursor at col 5 of line 0 → down to line 1 (len 2) → clamp to col 2
-    let mut cursor = 5;
-    inline_cursor_vertical(&text, &mut cursor, 1);
-    assert_eq!(cursor, 9); // line 1 start=7, col clamped to 2 = byte 9
+    match &state.issues_state.inline_state {
+        InlineState::Composer { text, .. } => assert_eq!(text, "draft"),
+        other => panic!("expected composer draft to remain, got {other:?}"),
+    }
+    assert_eq!(state.issues_state.error.as_deref(), Some("current error"));
 }

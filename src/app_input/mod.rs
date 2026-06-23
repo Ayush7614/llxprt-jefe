@@ -3,10 +3,13 @@ use std::sync::Arc;
 mod issues;
 mod issues_dispatch;
 mod issues_filter;
+mod issues_list_dispatch;
 mod issues_mutation;
 mod modal_handlers;
 mod normal;
 mod preflight;
+
+mod gh_async;
 
 pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
 
@@ -104,6 +107,11 @@ pub type AppStateHandle = HookState<AppState>;
 pub type QuitHandle = HookState<bool>;
 pub type HelpScrollHandle = HookState<u32>;
 
+fn github_client(ctx: &SharedContext) -> Option<jefe::github::GhClient> {
+    let ctx_arc = ctx.as_ref()?;
+    let ctx_guard = ctx_arc.lock().ok()?;
+    Some(ctx_guard.gh_client)
+}
 pub fn to_persisted_state(state: &AppState) -> PersistedState {
     PersistedState {
         schema_version: jefe::persistence::STATE_SCHEMA_VERSION,
@@ -426,7 +434,14 @@ pub fn dispatch_app_message(
         AppMessage::Runtime(RuntimeMessage::RelaunchAgent(agent_id)) => {
             dispatch_relaunch_agent(app_state, ctx, agent_id);
         }
-        AppMessage::Issues(message @ (IssuesMessage::NavigateUp | IssuesMessage::NavigateDown)) => {
+        AppMessage::Issues(
+            message @ (IssuesMessage::NavigateUp
+            | IssuesMessage::NavigateDown
+            | IssuesMessage::NavigatePageUp
+            | IssuesMessage::NavigatePageDown
+            | IssuesMessage::NavigateHome
+            | IssuesMessage::NavigateEnd),
+        ) => {
             dispatch_issues_navigation(app_state, ctx, message);
         }
         AppMessage::Issues(
@@ -435,10 +450,17 @@ pub fn dispatch_app_message(
             | IssuesMessage::ApplyFilter
             | IssuesMessage::ClearFilter
             | IssuesMessage::ApplySearch),
-        ) => dispatch_issue_list_reload(app_state, ctx, message),
+        ) => issues_list_dispatch::dispatch_issue_list_reload(app_state, ctx, message),
         AppMessage::Issues(IssuesMessage::Enter) => {
             apply_and_persist(app_state, ctx, AppEvent::IssuesEnter);
             issues_dispatch::load_issue_detail_for_selection(app_state, ctx);
+        }
+        AppMessage::Issues(
+            message @ (IssuesMessage::ScrollDetailDown | IssuesMessage::ScrollDetailPageDown),
+        ) => {
+            update_detail_viewport_rows(app_state);
+            apply_and_persist(app_state, ctx, AppEvent::from(AppMessage::Issues(message)));
+            issues_dispatch::load_more_comments(app_state, ctx);
         }
         AppMessage::Issues(IssuesMessage::AgentChooserConfirm) => {
             dispatch_agent_chooser_confirm(app_state, ctx);
@@ -448,6 +470,16 @@ pub fn dispatch_app_message(
         }
         message => apply_and_persist(app_state, ctx, AppEvent::from(message)),
     }
+}
+
+fn update_detail_viewport_rows(app_state: &mut AppStateHandle) {
+    let term_rows = crossterm::terminal::size().map_or(40, |(_, rows)| rows as usize);
+    let mut state = app_state.write();
+    state.issues_state.detail_viewport_rows = jefe::layout::issues_detail_viewport_rows(
+        term_rows,
+        state.issues_state.error.is_some(),
+        state.issues_state.filter_ui.controls_open,
+    );
 }
 
 fn log_dispatch(message: &AppMessage) {
@@ -658,6 +690,7 @@ fn refresh_issue_navigation(
         }
         jefe::state::IssueFocus::IssueList => {
             refresh_issue_preview_if_changed(app_state, prev_issue_idx);
+            issues_list_dispatch::load_more_issues_if_at_end(app_state, ctx);
         }
         jefe::state::IssueFocus::IssueDetail => {}
     }
@@ -675,6 +708,7 @@ fn refresh_repo_scope_if_changed(
     reset_issue_list_for_repo_change(app_state);
     dispatch_app_event(app_state, ctx, AppEvent::RefocusIssueList);
     app_state.write().issues_state.issue_focus = jefe::state::IssueFocus::RepoList;
+    issues_list_dispatch::dispatch_issue_list_fetch(app_state, ctx, true);
 }
 
 fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
@@ -689,6 +723,13 @@ fn reset_issue_list_for_repo_change(app_state: &mut AppStateHandle) {
         state.issues_state.draft_notice = Some("Unsent draft discarded".to_string());
     }
     state.issues_state.inline_state = jefe::state::InlineState::None;
+    state.issues_state.mutation_pending = None;
+    state.issues_state.loading.detail = false;
+    state.issues_state.loading.comments = false;
+    state.issues_state.detail_pending = None;
+    state.issues_state.comments_page_pending = None;
+    state.issues_state.list_reload_pending = None;
+    state.issues_state.list_page_pending = None;
     state.issues_state.agent_chooser = None;
     state.issues_state.loading.list = true;
 }
@@ -698,129 +739,6 @@ fn refresh_issue_preview_if_changed(app_state: &mut AppStateHandle, prev_issue_i
     if new_issue_idx != prev_issue_idx {
         issues_dispatch::preview_issue_from_list(app_state);
     }
-}
-
-fn dispatch_issue_list_reload(
-    app_state: &mut AppStateHandle,
-    ctx: &SharedContext,
-    message: IssuesMessage,
-) {
-    let fresh_reload = matches!(
-        message,
-        IssuesMessage::RefocusList | IssuesMessage::ApplySearch
-    );
-    apply_and_persist(app_state, ctx, AppEvent::from(message));
-    let params = issue_fetch_params(app_state, fresh_reload);
-
-    if params.owner.is_empty() || params.repo.is_empty() {
-        persist_missing_github_repo(app_state, ctx);
-        return;
-    }
-
-    let result = fetch_issue_list(ctx, &params);
-    persist_issue_list_result(app_state, &params.scope_repo_id, result);
-}
-
-struct IssueFetchParams {
-    scope_repo_id: jefe::domain::RepositoryId,
-    owner: String,
-    repo: String,
-    filter: jefe::domain::IssueFilter,
-    cursor: Option<String>,
-    page_size: u32,
-}
-
-fn issue_fetch_params(app_state: &AppStateHandle, fresh_reload: bool) -> IssueFetchParams {
-    let state = app_state.read();
-    let gh_repo = issues_dispatch::resolve_gh_repo(&state);
-    IssueFetchParams {
-        scope_repo_id: issues_dispatch::current_scope_repo_id(&state),
-        owner: gh_repo.0,
-        repo: gh_repo.1,
-        filter: state.issues_state.committed_filter.clone(),
-        cursor: (!fresh_reload)
-            .then(|| state.issues_state.list_cursor.clone())
-            .flatten(),
-        page_size: 30,
-    }
-}
-
-fn persist_missing_github_repo(app_state: &mut AppStateHandle, ctx: &SharedContext) {
-    let mut state = app_state.write();
-    state.issues_state.loading.list = false;
-    state.issues_state.error = Some(
-        "No GitHub repository configured. Set the GitHub Repo field (owner/repo) in repository settings."
-            .to_string(),
-    );
-    let persisted = to_persisted_state(&state);
-    drop(state);
-    persist_state(ctx, &persisted);
-}
-
-fn fetch_issue_list(
-    ctx: &SharedContext,
-    params: &IssueFetchParams,
-) -> Option<Result<jefe::github::IssueListResponse, jefe::github::GhError>> {
-    if let Some(ctx_arc) = ctx
-        && let Ok(ctx_guard) = ctx_arc.lock()
-    {
-        Some(ctx_guard.gh_client.list_issues(
-            &params.owner,
-            &params.repo,
-            &params.filter,
-            params.cursor.as_deref(),
-            params.page_size,
-        ))
-    } else {
-        None
-    }
-}
-
-fn persist_issue_list_result(
-    app_state: &mut AppStateHandle,
-    scope_repo_id: &jefe::domain::RepositoryId,
-    result: Option<Result<jefe::github::IssueListResponse, jefe::github::GhError>>,
-) {
-    match result {
-        Some(Ok(response)) => persist_issue_list_loaded(app_state, scope_repo_id, response),
-        Some(Err(error)) => persist_issue_list_failed(app_state, scope_repo_id, error.to_string()),
-        None => persist_issue_list_failed(
-            app_state,
-            scope_repo_id,
-            "Application context unavailable".to_string(),
-        ),
-    }
-}
-
-fn persist_issue_list_loaded(
-    app_state: &mut AppStateHandle,
-    scope_repo_id: &jefe::domain::RepositoryId,
-    response: jefe::github::IssueListResponse,
-) {
-    let has_issues = !response.issues.is_empty();
-    let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::IssueListLoaded {
-        scope_repo_id: scope_repo_id.clone(),
-        issues: response.issues,
-        cursor: response.cursor,
-        has_more: response.has_more,
-    });
-    drop(state);
-    if has_issues {
-        issues_dispatch::preview_issue_from_list(app_state);
-    }
-}
-
-fn persist_issue_list_failed(
-    app_state: &mut AppStateHandle,
-    scope_repo_id: &jefe::domain::RepositoryId,
-    error: String,
-) {
-    let mut state = app_state.write();
-    *state = std::mem::take(&mut *state).apply(AppEvent::IssueListLoadFailed {
-        scope_repo_id: scope_repo_id.clone(),
-        error,
-    });
 }
 
 fn dispatch_agent_chooser_confirm(app_state: &mut AppStateHandle, ctx: &SharedContext) {
