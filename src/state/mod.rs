@@ -6,6 +6,7 @@
 //!
 //! Pseudocode reference: component-001 lines 01-12
 
+mod dashboard_grab_ops;
 mod form_cursor;
 mod form_ops;
 mod issues_inline_ops;
@@ -360,6 +361,7 @@ impl AppState {
     fn finalize_message(&mut self, route: MessageRoute) {
         self.rebuild_repository_agent_ids();
         self.normalize_selection_indices();
+        self.validate_dashboard_grab();
         self.last_selected_agent_by_repo
             .retain(|(repo_id, agent_id)| {
                 self.repositories.iter().any(|repo| repo.id == *repo_id)
@@ -395,6 +397,7 @@ impl AppState {
             | UiNavigationMessage::SelectAgent(_)
             | UiNavigationMessage::JumpToAgentByShortcut(_) => {
                 self.sticky_dead_agent_ids.clear();
+                self.dashboard_grab = None;
             }
             _ => {}
         }
@@ -413,9 +416,13 @@ impl AppState {
             UiNavigationMessage::ToggleTerminalFocus => self.toggle_terminal_focus(),
             UiNavigationMessage::ToggleHideIdleRepositories => {
                 self.hide_idle_repositories = !self.hide_idle_repositories;
+                self.dashboard_grab = None;
                 self.normalize_selection_indices();
             }
-            UiNavigationMessage::EnterSplitMode => self.screen_mode = ScreenMode::Split,
+            UiNavigationMessage::EnterSplitMode => {
+                self.screen_mode = ScreenMode::Split;
+                self.dashboard_grab = None;
+            }
             UiNavigationMessage::ExitSplitMode => self.exit_split_mode(),
             UiNavigationMessage::EnterGrabMode => {
                 self.split_grab_index = self.selected_repository_visible_index();
@@ -424,6 +431,10 @@ impl AppState {
             UiNavigationMessage::GrabMoveUp => self.move_split_grab_up(),
             UiNavigationMessage::GrabMoveDown => self.move_split_grab_down(),
             UiNavigationMessage::SetSplitFilter(filter) => self.split_filter = filter,
+            UiNavigationMessage::EnterDashboardGrab => self.enter_dashboard_grab(),
+            UiNavigationMessage::ExitDashboardGrab => self.dashboard_grab = None,
+            UiNavigationMessage::DashboardGrabMoveUp => self.move_dashboard_grab_up(),
+            UiNavigationMessage::DashboardGrabMoveDown => self.move_dashboard_grab_down(),
         }
     }
 
@@ -434,6 +445,7 @@ impl AppState {
             PaneFocus::Agents => PaneFocus::Terminal,
             PaneFocus::Terminal => PaneFocus::Repositories,
         };
+        self.dashboard_grab = None;
         debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (tab)");
     }
 
@@ -443,6 +455,7 @@ impl AppState {
             PaneFocus::Repositories => PaneFocus::Agents,
             PaneFocus::Agents | PaneFocus::Terminal => PaneFocus::Terminal,
         };
+        self.dashboard_grab = None;
         debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (right)");
     }
 
@@ -452,6 +465,7 @@ impl AppState {
             PaneFocus::Repositories | PaneFocus::Agents => PaneFocus::Repositories,
             PaneFocus::Terminal => PaneFocus::Agents,
         };
+        self.dashboard_grab = None;
         debug!(old = ?old, new = ?self.pane_focus, "pane focus changed (left)");
     }
 
@@ -604,7 +618,6 @@ impl AppState {
             }
         }
     }
-
     fn apply_runtime_message(&mut self, message: RuntimeMessage) {
         match message {
             RuntimeMessage::KillAgent(agent_id) => {
