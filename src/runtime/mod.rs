@@ -15,16 +15,18 @@ mod liveness;
 mod manager;
 mod preflight;
 mod session;
+mod socket;
 
 pub use attach_scheduler::{AttachAction, AttachScheduler, DEFAULT_DEBOUNCE};
 pub use errors::RuntimeError;
-pub use liveness::{check_remote_session_alive, check_session_alive};
+pub use liveness::{check_remote_session_alive, check_session_alive, pid_alive};
 pub use manager::{LivenessCheck, RuntimeManager, StubRuntimeManager, TmuxRuntimeManager};
 pub use preflight::{
     PreflightAction, PreflightIssue, execute_preflight_action, platform_engine_diagnostic,
     sandbox_preflight, sandbox_ssh_agent_warning,
 };
 pub use session::{RuntimeSession, TerminalCell, TerminalCellStyle, TerminalSnapshot};
+pub use socket::jefe_tmux_socket_path;
 
 #[cfg(test)]
 mod tests {

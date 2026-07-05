@@ -24,6 +24,13 @@ mod prs_orchestration;
 
 mod gh_async;
 
+mod agent_runtime;
+use agent_runtime::{
+    clear_agent_runtime_attachment, clear_runtime_warning, mark_agent_runtime_attached,
+    mark_runtime_session_dead_if_present, pid_on_success, set_agent_runtime_binding,
+    worker_pid_for,
+};
+
 pub use modal_handlers::{handle_f12_toggle, handle_mode_confirm_key, handle_mode_form_key};
 
 pub use normal::{handle_global_shortcut_key, handle_normal_key_event};
@@ -34,7 +41,7 @@ use tracing::{debug, warn};
 
 use std::time::Duration;
 
-use jefe::domain::{AgentId, AgentStatus, LaunchSignature, Repository};
+use jefe::domain::{AgentId, LaunchSignature, Repository};
 
 const MAC_ALT_DIGIT_SHORTCUTS: &[(char, u8)] = &[
     ('¡', 1),
@@ -146,14 +153,6 @@ pub fn persist_state(ctx: &SharedContext, persisted: &PersistedState) {
     }
 }
 
-fn clear_runtime_warning(state: &mut AppState) {
-    if state.warning_message.as_deref().is_some_and(|warning| {
-        warning.contains("SSH_AUTH_SOCK") || warning.contains("SSH agent socket")
-    }) {
-        state.warning_message = None;
-    }
-}
-
 fn launch_signature_for_agent(
     agent: &jefe::domain::Agent,
     repository: &Repository,
@@ -183,47 +182,6 @@ fn agent_and_signature(
     let repository = state.repository_by_id(&agent.repository_id)?;
     let signature = launch_signature_for_agent(&agent, repository);
     Some((agent, signature))
-}
-
-fn set_agent_runtime_binding(
-    state: &mut AppState,
-    agent_id: &AgentId,
-    session_name: String,
-    signature: LaunchSignature,
-) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.runtime_binding = Some(jefe::domain::RuntimeBinding {
-            session_name,
-            launch_signature: signature,
-            attached: false,
-            last_seen: None,
-        });
-    }
-}
-
-fn mark_agent_runtime_attached(state: &mut AppState, agent_id: &AgentId, attached: bool) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id)
-        && let Some(binding) = agent.runtime_binding.as_mut()
-    {
-        binding.attached = attached;
-    }
-}
-
-fn clear_agent_runtime_attachment(state: &mut AppState) {
-    for agent in &mut state.agents {
-        if let Some(binding) = agent.runtime_binding.as_mut() {
-            binding.attached = false;
-        }
-    }
-}
-
-fn mark_runtime_session_dead_if_present(state: &mut AppState, agent_id: &AgentId) {
-    if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
-        agent.status = AgentStatus::Dead;
-        if let Some(binding) = agent.runtime_binding.as_mut() {
-            binding.attached = false;
-        }
-    }
 }
 
 fn apply_and_persist(app_state: &mut AppStateHandle, ctx: &SharedContext, evt: AppEvent) {
@@ -353,12 +311,17 @@ fn mark_launch_attached(
     agent_id: &AgentId,
     signature: &LaunchSignature,
 ) {
+    // Query the runtime for the worker PID before taking the app-state write
+    // lock, so the persisted binding carries the PID-liveness fallback.
+    let pid = worker_pid_for(ctx, agent_id);
+
     let mut state = app_state.write();
     set_agent_runtime_binding(
         &mut state,
         agent_id,
         jefe::runtime::RuntimeSession::session_name_for(agent_id),
         signature.clone(),
+        pid,
     );
     clear_agent_runtime_attachment(&mut state);
     mark_agent_runtime_attached(&mut state, agent_id, true);
@@ -682,9 +645,14 @@ fn persist_relaunch_result(
     relaunched: bool,
 ) {
     let relaunch_event = AppEvent::RelaunchAgent(agent_id.clone());
+    // Query the PID BEFORE taking the app-state write lock: worker_pid_for
+    // acquires the ctx mutex, so app_state-lock → ctx-lock would be a
+    // lock-ordering hazard. `pid_on_success` skips the query on the failure
+    // path (no binding is persisted).
+    let pid = pid_on_success(ctx, &agent_id, relaunched);
     let mut state = app_state.write();
     if relaunched {
-        persist_relaunch_success(&mut state, &agent_id, relaunch_event);
+        persist_relaunch_success(&mut state, &agent_id, relaunch_event, pid);
     } else {
         persist_relaunch_failure(&mut state, &agent_id, relaunch_event);
     }
@@ -693,13 +661,19 @@ fn persist_relaunch_result(
     persist_state(ctx, &persisted);
 }
 
-fn persist_relaunch_success(state: &mut AppState, agent_id: &AgentId, relaunch_event: AppEvent) {
+fn persist_relaunch_success(
+    state: &mut AppState,
+    agent_id: &AgentId,
+    relaunch_event: AppEvent,
+    pid: Option<u32>,
+) {
     if let Some((agent, signature)) = agent_and_signature(state, agent_id) {
         set_agent_runtime_binding(
             state,
             agent_id,
             jefe::runtime::RuntimeSession::session_name_for(&agent.id),
             signature,
+            pid,
         );
     }
     *state = std::mem::take(state).apply(relaunch_event);
@@ -901,9 +875,13 @@ fn launch_issue_agent(
     launch_sig: LaunchSignature,
 ) {
     let launched = spawn_and_attach_fresh_for_issue(ctx, &agent_id, &work_dir, &launch_sig);
+    // Resolve the worker PID for the persisted binding's PID-liveness
+    // fallback, before taking the app-state write lock (lock-ordering
+    // constraint). Skipped on the failure path (no binding persisted).
+    let pid = pid_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     if launched {
-        persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig);
+        persist_issue_agent_launch_success(&mut state, &agent_id, launch_sig, pid);
     } else {
         *state = std::mem::take(&mut *state).apply(AppEvent::SendToAgentFailed {
             error: "Failed to launch agent".to_string(),
@@ -954,6 +932,7 @@ fn persist_issue_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
     launch_sig: LaunchSignature,
+    pid: Option<u32>,
 ) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = jefe::domain::AgentStatus::Running;
@@ -963,6 +942,7 @@ fn persist_issue_agent_launch_success(
             launch_signature: launch_sig,
             attached: false,
             last_seen: None,
+            pid,
         });
     }
     clear_agent_runtime_attachment(state);

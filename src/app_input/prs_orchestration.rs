@@ -18,8 +18,8 @@ use tracing::warn;
 use super::{
     AppStateHandle, REMOTE_ATTACH_SETTLE_DELAY, SharedContext, apply_and_persist,
     clear_agent_runtime_attachment, dispatch_app_event, launch_signature_for_agent,
-    mark_agent_runtime_attached, persist_state, preflight_or_prompt, prs_comments_dispatch,
-    prs_dispatch, prs_list_dispatch, prs_mutation, to_persisted_state,
+    mark_agent_runtime_attached, persist_state, pid_on_success, preflight_or_prompt,
+    prs_comments_dispatch, prs_dispatch, prs_list_dispatch, prs_mutation, to_persisted_state,
 };
 
 // ── PR-mode dispatch routing + loader helpers ──────────────────────────────
@@ -400,9 +400,12 @@ fn launch_pr_agent(
     launch_sig: LaunchSignature,
 ) {
     let launched = spawn_and_attach_fresh_for_pr(ctx, &agent_id, &work_dir, &launch_sig);
+    // Resolve the worker PID before taking the app-state write lock
+    // (lock-ordering constraint). Skipped on the failure path.
+    let pid = pid_on_success(ctx, &agent_id, launched);
     let mut state = app_state.write();
     if launched {
-        persist_pr_agent_launch_success(&mut state, &agent_id, launch_sig);
+        persist_pr_agent_launch_success(&mut state, &agent_id, launch_sig, pid);
     } else {
         *state = std::mem::take(&mut *state).apply(AppEvent::PrSendToAgentFailed {
             error: "Failed to launch agent".to_string(),
@@ -469,6 +472,7 @@ fn persist_pr_agent_launch_success(
     state: &mut AppState,
     agent_id: &AgentId,
     launch_sig: LaunchSignature,
+    pid: Option<u32>,
 ) {
     if let Some(agent) = state.agents.iter_mut().find(|agent| &agent.id == agent_id) {
         agent.status = jefe::domain::AgentStatus::Running;
@@ -478,6 +482,7 @@ fn persist_pr_agent_launch_success(
             launch_signature: launch_sig,
             attached: false,
             last_seen: None,
+            pid,
         });
     }
     clear_agent_runtime_attachment(state);
