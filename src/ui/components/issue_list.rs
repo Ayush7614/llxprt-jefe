@@ -7,7 +7,8 @@ use iocraft::prelude::*;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::domain::{Issue, IssueState};
-use crate::theme::{ResolvedColors, ThemeColors};
+use crate::selection::{HighlightRange, TextSelection, row_highlight_range};
+use crate::theme::{ResolvedColors, RowColors, SelectionColors, ThemeColors};
 
 /// Ellipsis character appended when a title is truncated.
 const ELLIPSIS: char = '…';
@@ -86,6 +87,9 @@ pub struct IssueListProps {
     ///
     /// When provided, long issue titles are truncated with an ellipsis to fit.
     pub available_width: Option<u16>,
+    /// Active text selection, if any (and if it targets this pane). Selected
+    /// cells are painted in inverse video for live drag-selection feedback.
+    pub selection: Option<TextSelection>,
 }
 
 /// Projected issue-list row exactly as the component renders it.
@@ -241,68 +245,94 @@ pub fn IssueList(props: &IssueListProps) -> impl Into<AnyElement<'static>> {
                         Box(padding_left: 1u32, height: 1u32) {
                             Text(content: msg, color: rc.dim)
                         }
-                    }]
+                    }
+                    .into_any()]
                 } else {
+                    let rows = props;
                     let projected = issue_list_visible_rows(
-                        &props.issues,
-                        props.selected_index,
-                        props.list_pane_rows,
-                        props.layout,
-                        props.available_width,
+                        &rows.issues,
+                        rows.selected_index,
+                        rows.list_pane_rows,
+                        rows.layout,
+                        rows.available_width,
                     );
-                    projected.iter().map(|view| {
-                        let title_line = view.title_line.as_str();
-                        let meta_line = view.meta_line.as_str();
-                        if view.is_selected {
-                            if props.layout.is_compact() {
-                                element! {
-                                    Box(height: 1u32, background_color: rc.sel_bg) {
-                                        Text(
-                                            content: title_line,
-                                            color: rc.sel_fg,
-                                            weight: Weight::Bold,
-                                        )
-                                    }
-                                }
+                    projected.iter().enumerate().map(|(window_i, view)| {
+                        let highlight = rows.selection.as_ref().and_then(|s| {
+                            if s.pane() == crate::selection::SelectablePane::IssueList {
+                                row_highlight_range(s, window_i)
                             } else {
-                                element! {
-                                    Box(flex_direction: FlexDirection::Column) {
-                                        Box(height: 1u32, background_color: rc.sel_bg) {
-                                            Text(
-                                                content: title_line,
-                                                color: rc.sel_fg,
-                                                weight: Weight::Bold,
-                                            )
-                                        }
-                                        Box(height: 1u32, background_color: rc.sel_bg) {
-                                            Text(content: meta_line, color: rc.sel_fg)
-                                        }
-                                    }
-                                }
+                                None
                             }
-                        } else if props.layout.is_compact() {
-                            element! {
-                                Box(height: 1u32) {
-                                    Text(content: title_line, color: rc.fg)
-                                }
-                            }
-                        } else {
-                            element! {
-                                Box(flex_direction: FlexDirection::Column) {
-                                    Box(height: 1u32) {
-                                        Text(content: title_line, color: rc.fg)
-                                    }
-                                    Box(height: 1u32) {
-                                        Text(content: meta_line, color: rc.dim)
-                                    }
-                                }
-                            }
-                        }
+                        });
+                        render_issue_row(
+                            view,
+                            rows.layout.is_compact(),
+                            highlight,
+                            RowColors::from_resolved(&rc),
+                            SelectionColors::from_resolved(&rc),
+                            rc.dim,
+                        )
                     }).collect()
                 })
             }
         }
     }
+}
+
+/// Render a single issue-list row, applying the selection-row highlight when
+/// the row falls inside an active drag selection. Mirrors the pr_list helper.
+fn render_issue_row(
+    view: &IssueListRowView,
+    compact: bool,
+    highlight: Option<HighlightRange>,
+    row_colors: RowColors,
+    highlight_colors: SelectionColors,
+    dim: Color,
+) -> AnyElement<'static> {
+    let title_line = view.title_line.as_str();
+    let meta_line = view.meta_line.as_str();
+    let is_selected = view.is_selected;
+
+    // When a drag selection covers this row, paint the whole row in the
+    // selection colors. Keyboard selection uses a separate highlight color
+    // (`is_selected`) for text emphasis (bold) but not inverse-video.
+    let highlighted = highlight.is_some();
+    let row_bg = if highlighted {
+        highlight_colors.bg
+    } else {
+        row_colors.bg
+    };
+    let title_fg = if highlighted {
+        highlight_colors.fg
+    } else {
+        row_colors.fg
+    };
+    let weight = if is_selected {
+        Weight::Bold
+    } else {
+        Weight::Normal
+    };
+
+    if compact {
+        return element! {
+            Box(height: 1u32, background_color: row_bg) {
+                Text(content: title_line, color: title_fg, weight: weight)
+            }
+        }
+        .into_any();
+    }
+
+    element! {
+        Box(flex_direction: FlexDirection::Column) {
+            Box(height: 1u32, background_color: row_bg) {
+                Text(content: title_line, color: title_fg, weight: weight)
+            }
+            Box(height: 1u32, background_color: row_bg) {
+                Text(content: meta_line, color: if highlighted { highlight_colors.fg } else { dim })
+            }
+        }
+    }
+    .into_any()
 }
 
 #[cfg(test)]

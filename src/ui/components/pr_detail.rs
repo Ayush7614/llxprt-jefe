@@ -7,9 +7,11 @@ use iocraft::prelude::*;
 use crate::domain::PullRequestDetail;
 use crate::layout::PR_DETAIL_HEADER_ROWS as HEADER_ROWS;
 use crate::pr_detail_content::{build_pr_detail_content, pr_state_tag};
+use crate::selection::{SelectablePane, TextSelection};
 use crate::state::{ComposerTarget, InlineState, PrDetailSubfocus};
 use crate::theme::{ResolvedColors, ThemeColors};
 
+use super::issue_detail::header_row;
 use super::scrollable_text::ScrollableText;
 use super::text_box::TextBox;
 
@@ -111,6 +113,9 @@ pub struct PrDetailViewProps {
     pub detail_content_width: usize,
     /// Theme colors.
     pub colors: ThemeColors,
+    /// Active text selection, if any (and if it targets this pane). Passed
+    /// through to the `ScrollableText` so selected cells render inverse-video.
+    pub selection: Option<TextSelection>,
 }
 
 /// Extract the active PR composer `(text, byte_cursor, prefix)`.
@@ -254,24 +259,18 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
         ) {
             // ── Metadata header — always exactly HEADER_ROWS rows ─────────
             Box(flex_direction: FlexDirection::Column, padding_left: 1u32, padding_right: 1u32) {
-                Box(height: 1u32) {
-                    Text(content: h_title, color: rc.fg)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_state, color: state_color)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_branches, color: rc.dim)
-                }
-                Box(height: 1u32) {
-                    Text(content: h_url, color: rc.dim)
-                }
-                Box(height: 1u32) {
-                    Text(
-                        content: "─────────────────────────────────────────",
-                        color: rc.dim,
-                    )
-                }
+                #(header_row(h_title, rc.fg, 0, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
+                #(header_row(h_state, state_color, 1, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
+                #(header_row(h_branches, rc.dim, 2, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
+                #(header_row(h_url, rc.dim, 3, props.selection.as_ref(), SelectablePane::PrDetail, &rc))
+                #(header_row(
+                    "─────────────────────────────────────────".to_string(),
+                    rc.dim,
+                    4,
+                    props.selection.as_ref(),
+                    SelectablePane::PrDetail,
+                    &rc,
+                ))
             }
 
             // ── Scrollable viewport — always exactly scroll_rows rows ─────
@@ -288,6 +287,13 @@ pub fn PrDetailView(props: &PrDetailViewProps) -> impl Into<AnyElement<'static>>
                     cursor_bg: rc.bright,
                     track_color: rc.dim,
                     thumb_color: rc.bright,
+                    selection: props
+                        .selection
+                        .filter(|s| s.pane() == crate::selection::SelectablePane::PrDetail),
+                    selection_bg: Some(rc.sel_bg),
+                    selection_fg: Some(rc.sel_fg),
+                    bg: Some(rc.bg),
+                    content_line_offset: HEADER_ROWS,
                 )
             }
 

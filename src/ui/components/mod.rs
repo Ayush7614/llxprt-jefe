@@ -6,8 +6,14 @@
 mod agent_chooser;
 mod agent_list;
 mod filter_controls;
-mod issue_detail;
-mod issue_list;
+/// Issue detail pane projection + component. The projection
+/// (`issue_detail_header_view`, `header_highlight`, `header_row`) is reused by
+/// the PR detail component and the selection content provider so copied text
+/// matches the rendered rows.
+pub(crate) mod issue_detail;
+/// Issue list pane projection + component (projection is reused by the
+/// selection content provider so copied text matches the rendered rows).
+pub(crate) mod issue_list;
 /// @plan PLAN-20260624-PR-MODE.P13
 /// @requirement REQ-PR-012
 pub(crate) mod keybind_bar;

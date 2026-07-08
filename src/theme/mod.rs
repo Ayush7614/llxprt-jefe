@@ -98,6 +98,53 @@ pub struct ResolvedColors {
     pub sel_bg: Color,
 }
 
+/// Bundled foreground + background colors for selection highlighting.
+///
+/// Extracted from [`ResolvedColors`] to keep helper function argument counts
+/// under the clippy `too_many_arguments` threshold (6).
+#[derive(Debug, Clone, Copy)]
+pub struct SelectionColors {
+    /// Inverse-video foreground for selected text.
+    pub fg: Color,
+    /// Inverse-video background for selected text.
+    pub bg: Color,
+}
+
+/// Bundled foreground + background colors for a list row's default (non-selected)
+/// styling.
+///
+/// Lets render helpers receive themed values instead of `Color::Reset` (which
+/// leaks the terminal default background and can produce a visible haze).
+#[derive(Debug, Clone, Copy)]
+pub struct RowColors {
+    /// Default text color for a row.
+    pub fg: Color,
+    /// Themed background color for a row (avoids `Color::Reset` haze).
+    pub bg: Color,
+}
+
+impl RowColors {
+    /// Derive row colors from a [`ResolvedColors`] snapshot.
+    #[must_use]
+    pub const fn from_resolved(rc: &ResolvedColors) -> Self {
+        Self {
+            fg: rc.fg,
+            bg: rc.bg,
+        }
+    }
+}
+
+impl SelectionColors {
+    /// Derive selection colors from a [`ResolvedColors`] snapshot.
+    #[must_use]
+    pub const fn from_resolved(rc: &ResolvedColors) -> Self {
+        Self {
+            fg: rc.sel_fg,
+            bg: rc.sel_bg,
+        }
+    }
+}
+
 impl Default for ResolvedColors {
     fn default() -> Self {
         Self::from_theme(None)
