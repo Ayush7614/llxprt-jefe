@@ -896,6 +896,8 @@ pub fn remote_session_exists(
     let output = run_remote_ssh(remote, &command)?;
     Ok(output.status.success())
 }
+
+/// Kill a tmux session.
 ///
 /// @pseudocode component-002 lines 24-25
 pub fn kill_session(session_name: &str) -> Result<(), RuntimeError> {
