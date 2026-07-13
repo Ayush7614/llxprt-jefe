@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::agent_executable::ResolvedAgentExecutable;
+use super::agent_launcher::{AgentLauncherError, INTERNAL_LAUNCH_ARGUMENT, write_launch_plan};
 const MINIMUM_PSMUX_VERSION: MultiplexerVersion = MultiplexerVersion::new(3, 3, 6);
 const WINDOWS_INSTALL_GUIDANCE: &str =
     "install psmux 3.3.6 or newer with `winget install marlocarlo.psmux`, then restart Jefe";
@@ -183,7 +185,42 @@ impl MultiplexerPlan {
         }
     }
 
-    /// Return the private isolation handle.
+    /// Build a pane command from a resolved agent's explicit wrapper strategy.
+    pub fn agent_pane_command_args(
+        &self,
+        executable: &ResolvedAgentExecutable,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+    ) -> Result<Vec<OsString>, MultiplexerError> {
+        if self.platform == LocalPlatform::Unix {
+            return self.pane_command_args(executable.path().as_os_str(), args, environment);
+        }
+
+        let launcher =
+            std::env::current_exe().map_err(|_| MultiplexerError::CurrentExecutableUnavailable)?;
+        self.agent_pane_command_args_with_launcher(executable, args, environment, &launcher)
+    }
+
+    /// Build the Windows pane command with an explicit Jefe launcher path.
+    #[doc(hidden)]
+    pub fn agent_pane_command_args_with_launcher(
+        &self,
+        executable: &ResolvedAgentExecutable,
+        args: &[OsString],
+        environment: &[(OsString, OsString)],
+        launcher: &Path,
+    ) -> Result<Vec<OsString>, MultiplexerError> {
+        let plan_path = write_launch_plan(executable, args, environment)
+            .map_err(MultiplexerError::AgentLaunchPlan)?;
+        self.pane_command_args(
+            launcher.as_os_str(),
+            &[
+                OsString::from(INTERNAL_LAUNCH_ARGUMENT),
+                plan_path.into_os_string(),
+            ],
+            &[],
+        )
+    }
     #[must_use]
     pub const fn isolation(&self) -> &MultiplexerIsolation {
         &self.isolation
@@ -348,6 +385,10 @@ pub enum MultiplexerError {
     NonUnicodeArgument { value: OsString },
     /// An environment variable name cannot be represented safely in PowerShell.
     InvalidEnvironmentVariable { name: OsString },
+    /// Jefe's own executable path could not be determined for the private launcher.
+    CurrentExecutableUnavailable,
+    /// The narrow Windows agent launch plan could not be prepared.
+    AgentLaunchPlan(AgentLauncherError),
 }
 
 impl std::fmt::Display for MultiplexerError {
@@ -405,12 +446,28 @@ impl std::fmt::Display for MultiplexerError {
                 "Windows psmux shell argument is not valid Unicode: {}",
                 Path::new(value).display()
             ),
-            Self::InvalidEnvironmentVariable { name } => write!(
-                formatter,
-                "invalid Windows environment variable name: {}",
-                Path::new(name).display()
-            ),
+            Self::InvalidEnvironmentVariable { name } => {
+                format_invalid_environment_variable(formatter, name)
+            }
+            Self::CurrentExecutableUnavailable | Self::AgentLaunchPlan(_) => {
+                format_agent_launch_error(formatter, self)
+            }
         }
+    }
+}
+fn format_agent_launch_error(
+    formatter: &mut std::fmt::Formatter<'_>,
+    error: &MultiplexerError,
+) -> std::fmt::Result {
+    match error {
+        MultiplexerError::CurrentExecutableUnavailable => {
+            formatter.write_str("Jefe executable path is unavailable for Windows agent launch")
+        }
+        MultiplexerError::AgentLaunchPlan(source) => write!(
+            formatter,
+            "Windows agent launch plan preparation failed: {source}"
+        ),
+        _ => formatter.write_str("unrelated multiplexer error"),
     }
 }
 
@@ -433,6 +490,18 @@ fn format_malformed_version(
         ),
     }
 }
+
+fn format_invalid_environment_variable(
+    formatter: &mut std::fmt::Formatter<'_>,
+    name: &OsStr,
+) -> std::fmt::Result {
+    write!(
+        formatter,
+        "invalid Windows environment variable name: {}",
+        Path::new(name).display()
+    )
+}
+
 /// Return deterministic executable names considered for a platform.
 #[must_use]
 pub fn executable_candidates(platform: LocalPlatform) -> Vec<OsString> {
