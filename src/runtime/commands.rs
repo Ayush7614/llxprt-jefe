@@ -936,11 +936,16 @@ pub fn remote_session_exists(
 ) -> Result<bool, RuntimeError> {
     let command = remote_has_session_command(remote, session_name);
     let output = run_remote_ssh(remote, &command)?;
-    Ok(output.status.success())
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(RuntimeError::CapabilityProbeFailed(format!(
+            "remote tmux session probe failed: {}",
+            output.status
+        ))),
+    }
 }
-
 /// Kill a tmux session.
-///
 /// @pseudocode component-002 lines 24-25
 pub fn kill_session(session_name: &str) -> Result<(), RuntimeError> {
     let output = tmux_command()?

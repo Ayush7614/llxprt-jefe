@@ -545,7 +545,8 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     };
 
     let unique = unique_session("stickyagent");
-    let agent_session = format!("jefe-stickyagent-{unique}");
+    let agent_id = crate::domain::AgentId(unique);
+    let agent_session = crate::runtime::RuntimeSession::session_name_for(&agent_id);
 
     // Pre-create a tmux session running sleep on jefe's dedicated socket so
     // jefe's session-exists check (which now targets the private socket) finds
@@ -566,7 +567,7 @@ fn guarded_real_jefe_sticky_kill_scenario() {
     };
 
     let config_dir = tempfile::tempdir().value_or_panic("isolated config tempdir");
-    seed_sticky_agent_state(config_dir.path(), &agent_session);
+    seed_sticky_agent_state(config_dir.path(), &agent_id, &agent_session);
 
     let summary = run_sticky_scenario(&jefe_binary, config_dir.path());
     assert_eq!(summary.steps_run, 13);
@@ -575,15 +576,24 @@ fn guarded_real_jefe_sticky_kill_scenario() {
 /// Seed a config directory with a state.json containing a single Running agent
 /// bound to the given tmux session name (issue #116 scenario fixture).
 #[cfg(unix)]
-fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
+type StickyAgentId = crate::domain::AgentId;
+#[cfg(unix)]
+type StickyConfigPath = std::path::Path;
+
+#[cfg(unix)]
+fn seed_sticky_agent_state(
+    config_dir: &StickyConfigPath,
+    agent_id: &StickyAgentId,
+    agent_session: &str,
+) {
     use crate::domain::{
-        Agent, AgentId, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature,
-        RemoteRepositorySettings, Repository, RepositoryId, RuntimeBinding, SandboxEngine,
+        Agent, AgentStatus, DEFAULT_SANDBOX_FLAGS, LaunchSignature, RemoteRepositorySettings,
+        Repository, RepositoryId, RuntimeBinding, SandboxEngine,
     };
     use crate::persistence::{FilePersistenceManager, PersistenceManager, PersistencePaths, State};
 
     let mut agent = Agent::new(
-        AgentId("stickyagent".into()),
+        agent_id.clone(),
         RepositoryId("testrepo".into()),
         "StickyAgent".into(),
         std::path::PathBuf::from("/tmp"),
@@ -596,7 +606,7 @@ fn seed_sticky_agent_state(config_dir: &std::path::Path, agent_session: &str) {
             work_dir: std::path::PathBuf::from("/tmp"),
             profile: String::new(),
             code_puppy_model: String::new(),
-            code_puppy_yolo: Some(false),
+            code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: vec![],
             llxprt_debug: String::new(),
