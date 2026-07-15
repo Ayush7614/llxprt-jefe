@@ -310,7 +310,8 @@ pub enum IssuesMessage {
     IssueCreated {
         scope_repo_id: RepositoryId,
         mutation_id: u64,
-        issue_number: u64,
+        /// Newly created issue row used for optimistic list insert (issue #215).
+        issue: Issue,
     },
     CommentCreated {
         scope_repo_id: RepositoryId,

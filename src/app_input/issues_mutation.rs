@@ -3,8 +3,7 @@
 use jefe::state::AppEvent;
 
 use super::{
-    AppStateHandle, SharedContext, apply_and_persist, dispatch_app_event, gh_async, github_client,
-    issues_dispatch,
+    AppStateHandle, SharedContext, apply_and_persist, gh_async, github_client, issues_dispatch,
 };
 
 pub(super) fn handle_inline_submit(app_state: &mut AppStateHandle, ctx: &SharedContext) {
@@ -194,17 +193,21 @@ fn create_issue(
             });
 
             match result {
-                Some(Ok(issue)) => {
+                Some(Ok(created)) => {
                     apply_and_persist(
                         &mut app_state,
                         &ctx,
                         AppEvent::IssueCreated {
                             scope_repo_id: created_scope,
                             mutation_id,
-                            issue_number: issue.number,
+                            issue: created.into_list_issue(),
                         },
                     );
-                    dispatch_app_event(&mut app_state, &ctx, AppEvent::RefocusIssueList);
+                    // Optimistic list insert already selected the new issue.
+                    // Avoid RefocusIssueList: it clears the create notice and
+                    // triggers an immediate fresh reload that often races
+                    // GitHub search indexing and drops the new row (issue #215).
+                    issues_dispatch::load_issue_detail_for_selection(&mut app_state, &ctx);
                 }
                 Some(Err(e)) => {
                     apply_mutation_failed(
