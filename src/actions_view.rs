@@ -21,14 +21,14 @@ use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
 /// the same format. Equal or missing timestamps break ties by `id` descending
 /// for a deterministic stable fallback.
 #[must_use]
-pub fn cmp_workflow_runs_newest_first(a: &WorkflowRun, b: &WorkflowRun) -> Ordering {
+pub(crate) fn cmp_workflow_runs_newest_first(a: &WorkflowRun, b: &WorkflowRun) -> Ordering {
     b.created_at
         .cmp(&a.created_at)
         .then_with(|| b.id.cmp(&a.id))
 }
 
 /// Sort `runs` reverse-chronologically in place (most recent `created_at` first).
-pub fn sort_workflow_runs_newest_first(runs: &mut [WorkflowRun]) {
+pub(crate) fn sort_workflow_runs_newest_first(runs: &mut [WorkflowRun]) {
     runs.sort_by(cmp_workflow_runs_newest_first);
 }
 

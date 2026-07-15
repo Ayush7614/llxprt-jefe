@@ -593,6 +593,75 @@ mod tests {
         );
     }
 
+    /// Equal timestamps fall back to id-descending through reload + page append
+    /// (issue #208 / OCR) — same secondary key as `cmp_workflow_runs_newest_first`.
+    #[test]
+    fn runs_load_paths_break_equal_created_at_ties_by_id_desc() {
+        let mut state = create_test_state();
+        start_reload(&mut state, 1);
+        state.apply_actions_message(ActionsMessage::RunsLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 1,
+            request_id: 1,
+            runs: vec![
+                make_run_at(1, "t"),
+                make_run_at(2, "t"),
+            ],
+            has_more: true,
+        });
+        assert_eq!(
+            state
+                .actions_state
+                .runs()
+                .iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>(),
+            vec![2, 1],
+            "reload must tie-break equal created_at by id descending"
+        );
+        assert_eq!(
+            state.actions_state.selected_run().map(|r| r.id),
+            Some(2),
+            "visible reload selects the id-desc winner at index 0"
+        );
+
+        // Keep the lower-id run selected so page append must remapping by id.
+        state.actions_state.list.set_selected_index(Some(1));
+        assert_eq!(state.actions_state.selected_run().map(|r| r.id), Some(1));
+
+        let token = state.actions_state.list.next_page().clone();
+        let req2 = alloc_req(&mut state.actions_state.list);
+        state.actions_state.list.begin_page(token, req2);
+
+        state.apply_actions_message(ActionsMessage::RunsPageLoaded {
+            scope_repo_id: RepositoryId("test_repo".to_string()),
+            filter: Box::new(ActionsFilter::default()),
+            page: 2,
+            request_id: req2.get(),
+            runs: vec![
+                make_run_at(4, "t"),
+                make_run_at(3, "t"),
+            ],
+            has_more: false,
+        });
+        assert_eq!(
+            state
+                .actions_state
+                .runs()
+                .iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>(),
+            vec![4, 3, 2, 1],
+            "page append must re-apply id-desc ties across the full list"
+        );
+        assert_eq!(
+            state.actions_state.selected_run().map(|r| r.id),
+            Some(1),
+            "selection must follow the same run id across a tied-timestamp resort"
+        );
+    }
+
     /// Load-more appends re-sort so older pages slot below newer runs (issue #208).
     #[test]
     fn runs_page_loaded_resorts_so_older_appends_slot_below() {
