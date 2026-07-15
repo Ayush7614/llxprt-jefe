@@ -158,6 +158,7 @@ pub fn Dashboard(props: &DashboardProps) -> impl Into<AnyElement<'static>> {
                 version: crate::VERSION.to_owned(),
                 kennel_mode: state.is_some_and(crate::state::AppState::is_kennel_mode),
                 warning_message: state.and_then(|s| s.warning_message.clone()),
+                last_error: state.and_then(AppState::last_error_title),
                 colors: colors.clone(),
                 selection: selection,
             )
