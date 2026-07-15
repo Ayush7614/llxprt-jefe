@@ -990,6 +990,11 @@ mod prs_tests_review_threads;
 #[cfg(test)]
 #[path = "prs_tests_bodyless_review_nav.rs"]
 mod prs_tests_bodyless_review_nav;
+
+#[cfg(test)]
+#[path = "prs_tests_review_order.rs"]
+mod prs_tests_review_order;
+
 // @plan PLAN-20260624-PR-MODE.P15 @requirement REQ-PR-001
 #[cfg(test)]
 #[path = "prs_integration_tests.rs"]
