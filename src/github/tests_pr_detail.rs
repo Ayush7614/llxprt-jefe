@@ -658,6 +658,25 @@ fn test_sort_pr_reviews_breaks_ties_by_review_id_desc() {
     );
 }
 
+/// Issue #238: when both submitted_at and review_id are missing, fall back to
+/// author_login ascending for a deterministic order.
+#[test]
+fn test_sort_pr_reviews_falls_back_to_author_login_when_time_and_id_missing() {
+    let mut reviews = vec![
+        make_sort_review(None, "b", "", Some("b")),
+        make_sort_review(None, "a", "", Some("a")),
+        make_sort_review(None, "c", "", Some("c")),
+    ];
+    sort_pr_reviews(&mut reviews);
+    assert_eq!(
+        reviews
+            .iter()
+            .map(|r| r.author_login.as_str())
+            .collect::<Vec<_>>(),
+        vec!["a", "b", "c"]
+    );
+}
+
 /// Issue #238: missing/empty timestamps sort last (older side).
 #[test]
 fn test_sort_pr_reviews_puts_empty_timestamps_last() {
