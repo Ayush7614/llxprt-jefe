@@ -31,10 +31,13 @@ impl AppState {
             scope_repo_id: data.scope_repo_id,
             filter: data.filter,
         };
+        // Sort before accept so visible reload selects index 0 = newest (issue #208).
+        let mut runs = data.runs;
+        crate::actions_view::sort_workflow_runs_newest_first(&mut runs);
         let result = ReloadResult {
             identity,
             request_id: ListRequestId::from_raw(data.request_id),
-            items: data.runs,
+            items: runs,
             next_page: PageToken::after_page(data.page, data.has_more),
         };
         let outcome = self.actions_state.list.accept_loaded(result);
@@ -63,6 +66,10 @@ impl AppState {
         };
         let outcome = self.actions_state.list.accept_page(result);
         if matches!(outcome, AcceptOutcome::Applied | AcceptOutcome::Empty) {
+            // Re-sort the full list after append so older pages slot below newer
+            // runs even when API/page order is wrong (issue #208). Preserve the
+            // selected run by id because indices may shift.
+            resort_actions_runs_preserving_selection(&mut self.actions_state.list);
             self.actions_state.error = None;
         }
         true
@@ -141,5 +148,21 @@ impl AppState {
             filter: self.actions_state.committed_filter.clone(),
         };
         self.actions_state.list.begin_reload(identity, request_id);
+    }
+}
+
+/// Sort Actions runs newest-first and keep the selected run identity stable
+/// across the reorder (issue #208). Used after page appends where indices shift.
+fn resort_actions_runs_preserving_selection(
+    list: &mut crate::state::pagination::PaginatedList<WorkflowRun, ActionsListIdentity>,
+) {
+    let selected_id = list
+        .selected_index()
+        .and_then(|idx| list.items().get(idx).map(|run| run.id));
+    let mut runs = list.items().to_vec();
+    crate::actions_view::sort_workflow_runs_newest_first(&mut runs);
+    list.replace_items(runs);
+    if let Some(id) = selected_id {
+        list.set_selected_index(list.items().iter().position(|run| run.id == id));
     }
 }

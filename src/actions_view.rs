@@ -3,9 +3,34 @@
 //! This iocraft-free module maps loaded runs and list geometry into a stable
 //! selection-following window. Job-detail projection lives in
 //! [`crate::actions_detail_view`].
+//!
+//! Run ordering (issue #208): callers should keep the loaded list sorted with
+//! [`sort_workflow_runs_newest_first`] so navigation indices match the
+//! reverse-chronological display order. The projection itself does not re-sort;
+//! sorting lives next to load/page accept so paginated appends stay coherent.
+
+use std::cmp::Ordering;
 
 use crate::domain::{WorkflowRun, WorkflowRunConclusion, WorkflowRunStatus};
 use crate::list_viewport::{ContentRows, ListViewport, RowsPerItem};
+
+/// Newest-first ordering for workflow runs (issue #208).
+///
+/// Primary key is `created_at` descending. GitHub returns RFC 3339 / ISO-8601
+/// timestamps, so lexicographic string compare matches chronological order for
+/// the same format. Equal or missing timestamps break ties by `id` descending
+/// for a deterministic stable fallback.
+#[must_use]
+pub fn cmp_workflow_runs_newest_first(a: &WorkflowRun, b: &WorkflowRun) -> Ordering {
+    b.created_at
+        .cmp(&a.created_at)
+        .then_with(|| b.id.cmp(&a.id))
+}
+
+/// Sort `runs` reverse-chronologically in place (most recent `created_at` first).
+pub fn sort_workflow_runs_newest_first(runs: &mut [WorkflowRun]) {
+    runs.sort_by(cmp_workflow_runs_newest_first);
+}
 
 /// A single run in the projected runs list view.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,5 +171,71 @@ mod tests {
 
         assert_eq!(view.first_visible_run_index, 1);
         assert!(view.visible_runs.iter().all(|run| !run.is_selected));
+    }
+
+    fn run_at(id: u64, created_at: &str) -> WorkflowRun {
+        let mut r = run(id);
+        r.created_at = created_at.to_string();
+        r
+    }
+
+    #[test]
+    fn sort_workflow_runs_newest_first_orders_by_created_at_desc() {
+        let mut runs = vec![
+            run_at(1, "2026-07-01T10:00:00Z"),
+            run_at(2, "2026-07-03T10:00:00Z"),
+            run_at(3, "2026-07-02T10:00:00Z"),
+        ];
+        sort_workflow_runs_newest_first(&mut runs);
+        assert_eq!(
+            runs.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
+    }
+
+    #[test]
+    fn sort_workflow_runs_newest_first_breaks_ties_by_id_desc() {
+        let mut runs = vec![
+            run_at(1, "2026-07-01T10:00:00Z"),
+            run_at(3, "2026-07-01T10:00:00Z"),
+            run_at(2, "2026-07-01T10:00:00Z"),
+        ];
+        sort_workflow_runs_newest_first(&mut runs);
+        assert_eq!(
+            runs.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![3, 2, 1]
+        );
+    }
+
+    #[test]
+    fn sort_workflow_runs_newest_first_puts_empty_timestamps_last() {
+        let mut runs = vec![
+            run_at(1, ""),
+            run_at(2, "2026-07-02T10:00:00Z"),
+            run_at(3, "2026-07-01T10:00:00Z"),
+        ];
+        sort_workflow_runs_newest_first(&mut runs);
+        assert_eq!(
+            runs.iter().map(|r| r.id).collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
+    }
+
+    #[test]
+    fn projected_list_preserves_pre_sorted_newest_first_order() {
+        let runs = vec![
+            run_at(2, "2026-07-03T10:00:00Z"),
+            run_at(3, "2026-07-02T10:00:00Z"),
+            run_at(1, "2026-07-01T10:00:00Z"),
+        ];
+        let view = project_runs_list(&runs, Some(0), 5);
+        assert_eq!(
+            view.visible_runs
+                .iter()
+                .map(|r| r.id)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
+        assert!(view.visible_runs[0].is_selected);
     }
 }
