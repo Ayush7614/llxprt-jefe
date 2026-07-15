@@ -762,6 +762,7 @@ mod tests {
                 jefe::domain::AgentKind::Llxprt,
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
+            transient_available: false,
         });
         assert!(matches!(
             input_mode_for_state(&state),
@@ -845,6 +846,7 @@ mod tests {
                 jefe::domain::AgentKind::Llxprt,
                 jefe::domain::ChooserRuntimeConfig::default(),
             )],
+            transient_available: false,
         });
         assert!(matches!(
             input_mode_for_state(&state),
