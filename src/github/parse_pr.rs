@@ -595,6 +595,26 @@ pub fn sort_pull_requests(items: &mut [PullRequest]) {
     });
 }
 
+/// Sort PR reviews newest-first by `submitted_at` (issue #238).
+///
+/// Review groups keep their attached `review_threads` while the parent
+/// ordering flips to most-recent → least-recent. Equal or missing timestamps
+/// break ties by `review_id` descending, then `author_login` ascending for a
+/// deterministic stable fallback.
+pub fn sort_pr_reviews(reviews: &mut [crate::domain::PrReview]) {
+    reviews.sort_by(cmp_pr_reviews_newest_first);
+}
+
+fn cmp_pr_reviews_newest_first(
+    a: &crate::domain::PrReview,
+    b: &crate::domain::PrReview,
+) -> std::cmp::Ordering {
+    b.submitted_at
+        .cmp(&a.submitted_at)
+        .then_with(|| b.review_id.cmp(&a.review_id))
+        .then_with(|| a.author_login.cmp(&b.author_login))
+}
+
 // =============================================================================
 // PR review threads (issue #119)
 // =============================================================================

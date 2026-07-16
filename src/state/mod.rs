@@ -886,17 +886,14 @@ impl AppState {
         }
     }
 }
-
 #[cfg(test)]
 #[path = "auth_ops_tests.rs"]
 mod auth_ops_tests;
 #[cfg(test)]
-#[path = "confirm_focus_tests.rs"]
 mod confirm_focus_tests;
 #[cfg(test)]
 mod errors_tests;
 #[cfg(test)]
-#[path = "issues_test_fixtures.rs"]
 mod issues_test_fixtures;
 #[cfg(test)]
 #[path = "issues_tests.rs"]
@@ -986,6 +983,9 @@ mod prs_tests_pagination;
 #[cfg(test)]
 #[path = "prs_tests_repo_nav.rs"]
 mod prs_tests_repo_nav;
+#[cfg(test)]
+#[path = "prs_tests_review_order.rs"]
+mod prs_tests_review_order;
 #[cfg(test)]
 #[path = "prs_tests_review_threads.rs"]
 mod prs_tests_review_threads;

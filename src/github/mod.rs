@@ -68,7 +68,7 @@ pub use parse_pr::{
     build_pr_search_query, parse_check_status, parse_checks_rollup, parse_pr_check,
     parse_pr_review, parse_pr_review_threads, parse_pr_review_threads_cursor, parse_pr_state,
     parse_pull_request_detail_json, parse_pull_requests_json, parse_review_decision,
-    parse_thread_reply_json, rollup_nodes, sort_pull_requests,
+    parse_thread_reply_json, rollup_nodes, sort_pr_reviews, sort_pull_requests,
 };
 
 fn gh_command() -> Result<Command, GhError> {
@@ -620,6 +620,9 @@ impl GhClient {
         let mut detail = detail;
         detail.comments = loaded_comments(comments);
         assign_threads_to_reviews(&mut detail.reviews, threads);
+        // Newest-first review groups (issue #238). Sort after thread
+        // assignment so each review keeps its own inline conversations.
+        sort_pr_reviews(&mut detail.reviews);
         Ok(detail)
     }
 
