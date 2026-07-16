@@ -11,7 +11,7 @@ pub struct CreatedIssue {
     pub number: u64,
     pub title: String,
     pub body: String,
-    /// GraphQL/REST node id when present on the create response.
+    /// Required GraphQL/REST node id from the create response.
     pub node_id: String,
     pub author_login: String,
     pub updated_at: String,

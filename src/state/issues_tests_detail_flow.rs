@@ -221,7 +221,7 @@ fn test_stale_create_issue_success_after_repo_change_does_not_clear_current_draf
     let state = state.apply(AppEvent::IssueCreated {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 12,
-        issue: make_test_issue(1),
+        issue: Box::new(make_test_issue(1)),
     });
 
     assert!(state.issues_state.mutation_pending.is_some());
@@ -250,11 +250,11 @@ fn test_create_issue_success_for_current_repo_sets_notice_and_clears_pending() {
     let state = state.apply(AppEvent::IssueCreated {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 21,
-        issue: Issue {
+        issue: Box::new(Issue {
             title: "Fresh title".to_string(),
             body: "Fresh body".to_string(),
             ..make_test_issue(77)
-        },
+        }),
     });
 
     assert!(state.issues_state.mutation_pending.is_none());
@@ -264,7 +264,11 @@ fn test_create_issue_success_for_current_repo_sets_notice_and_clears_pending() {
         Some("Created issue #77")
     );
     assert_eq!(
-        state.issues_state.issues().first().map(|issue| issue.number),
+        state
+            .issues_state
+            .issues()
+            .first()
+            .map(|issue| issue.number),
         Some(77),
         "created issue must be visible in the list without a GitHub reload (issue #215)"
     );
@@ -298,7 +302,7 @@ fn test_create_issue_success_preserves_notice_without_clearing_via_refocus() {
     let state = state.apply(AppEvent::IssueCreated {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 24,
-        issue: make_test_issue(88),
+        issue: Box::new(make_test_issue(88)),
     });
 
     assert_eq!(
@@ -336,10 +340,10 @@ fn test_create_issue_success_prepends_and_selects_new_issue() {
     let state = state.apply(AppEvent::IssueCreated {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 22,
-        issue: Issue {
+        issue: Box::new(Issue {
             title: "Brand new".to_string(),
             ..make_test_issue(42)
-        },
+        }),
     });
 
     let numbers: Vec<_> = state
@@ -350,10 +354,7 @@ fn test_create_issue_success_prepends_and_selects_new_issue() {
         .collect();
     assert_eq!(numbers, vec![42, 10, 9]);
     assert_eq!(state.issues_state.selected_issue_index(), Some(0));
-    assert_eq!(
-        state.issues_state.issues()[0].title.as_str(),
-        "Brand new"
-    );
+    assert_eq!(state.issues_state.issues()[0].title.as_str(), "Brand new");
 }
 
 /// Issue #215: closed-only list filters must not receive an open created issue,
@@ -384,7 +385,7 @@ fn test_create_issue_success_skips_list_insert_when_filter_is_closed_only() {
     let state = state.apply(AppEvent::IssueCreated {
         scope_repo_id: RepositoryId("repo-1".to_string()),
         mutation_id: 23,
-        issue: make_test_issue(99),
+        issue: Box::new(make_test_issue(99)),
     });
 
     assert_eq!(

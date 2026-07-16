@@ -44,7 +44,7 @@ impl AppState {
                 scope_repo_id,
                 mutation_id,
                 issue,
-            } => self.apply_issue_created(&scope_repo_id, mutation_id, issue),
+            } => self.apply_issue_created(&scope_repo_id, mutation_id, *issue),
             AppEvent::CommentCreated { .. }
             | AppEvent::IssueBodyUpdated { .. }
             | AppEvent::CommentUpdated { .. } => self.apply_issue_mutation_success(event),
@@ -229,7 +229,9 @@ impl AppState {
 /// list filter. Closed-only views stay unchanged; Open/All/default show it.
 fn created_issue_visible_in_committed_filter(filter: &crate::domain::IssueFilter) -> bool {
     !matches!(
-        filter.state.unwrap_or(crate::domain::IssueFilterState::Open),
+        filter
+            .state
+            .unwrap_or(crate::domain::IssueFilterState::Open),
         crate::domain::IssueFilterState::Closed
     )
 }
