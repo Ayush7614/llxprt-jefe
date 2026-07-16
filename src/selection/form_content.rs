@@ -84,6 +84,12 @@ fn agent_post_kind_field_specs(
             cursor.code_puppy_model,
         ),
         (
+            "Version",
+            fields.code_puppy_version.clone(),
+            AgentFormFocus::CodePuppyVersion,
+            cursor.code_puppy_version,
+        ),
+        (
             "Mode Flags",
             fields.mode.clone(),
             AgentFormFocus::Mode,
@@ -296,6 +302,14 @@ fn append_repository_runtime_fields(
             fields.default_code_puppy_yolo,
             "space toggles",
         ));
+    }
+    if is_repository_field_visible(RepositoryFormFocus::DefaultCodePuppyVersion, default_kind) {
+        let value = focused_value(
+            &fields.default_code_puppy_version,
+            cursor.default_code_puppy_version,
+            focus == RepositoryFormFocus::DefaultCodePuppyVersion,
+        );
+        lines.push(render_field("Default Version", &value));
     }
     if is_repository_field_visible(RepositoryFormFocus::DefaultLlxprtMode, default_kind) {
         let value = focused_value(

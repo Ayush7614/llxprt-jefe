@@ -9,13 +9,45 @@ fn insert_repository_char(value: &mut String, cursor: &mut usize, c: char) {
     *cursor = insert_char_at(value, *cursor, c);
 }
 
-fn insert_repository_llxprt_char(
+fn insert_repository_remote_char(
     fields: &mut RepositoryFormFields,
     cursor: &mut RepositoryFormCursor,
     focus: RepositoryFormFocus,
     c: char,
 ) {
     match focus {
+        RepositoryFormFocus::LoginUser => {
+            insert_repository_char(&mut fields.login_user, &mut cursor.login_user, c);
+        }
+        RepositoryFormFocus::Host => insert_repository_char(&mut fields.host, &mut cursor.host, c),
+        RepositoryFormFocus::SshPort => {
+            insert_repository_char(&mut fields.ssh_port, &mut cursor.ssh_port, c);
+        }
+        RepositoryFormFocus::IdentityFile => {
+            insert_repository_char(&mut fields.identity_file, &mut cursor.identity_file, c);
+        }
+        RepositoryFormFocus::SshOptions => {
+            insert_repository_char(&mut fields.ssh_options, &mut cursor.ssh_options, c);
+        }
+        RepositoryFormFocus::RunAsUser => {
+            insert_repository_char(&mut fields.run_as_user, &mut cursor.run_as_user, c);
+        }
+        _ => {}
+    }
+}
+
+fn insert_repository_runtime_char(
+    fields: &mut RepositoryFormFields,
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+    c: char,
+) {
+    match focus {
+        RepositoryFormFocus::DefaultCodePuppyVersion => insert_repository_char(
+            &mut fields.default_code_puppy_version,
+            &mut cursor.default_code_puppy_version,
+            c,
+        ),
         RepositoryFormFocus::DefaultLlxprtMode => insert_repository_char(
             &mut fields.default_llxprt_mode,
             &mut cursor.default_llxprt_mode,
@@ -49,8 +81,10 @@ pub(super) fn handle_repository_field_char(
             &mut cursor.default_code_puppy_model,
             c,
         ),
-        RepositoryFormFocus::DefaultLlxprtMode | RepositoryFormFocus::DefaultLlxprtVersion => {
-            insert_repository_llxprt_char(fields, cursor, focus, c);
+        RepositoryFormFocus::DefaultCodePuppyVersion
+        | RepositoryFormFocus::DefaultLlxprtMode
+        | RepositoryFormFocus::DefaultLlxprtVersion => {
+            insert_repository_runtime_char(fields, cursor, focus, c);
         }
         RepositoryFormFocus::GitHubRepo => {
             insert_repository_char(&mut fields.github_repo, &mut cursor.github_repo, c);
@@ -60,21 +94,13 @@ pub(super) fn handle_repository_field_char(
             &mut cursor.github_issue_pr_repo,
             c,
         ),
-        RepositoryFormFocus::LoginUser => {
-            insert_repository_char(&mut fields.login_user, &mut cursor.login_user, c);
-        }
-        RepositoryFormFocus::Host => insert_repository_char(&mut fields.host, &mut cursor.host, c),
-        RepositoryFormFocus::SshPort => {
-            insert_repository_char(&mut fields.ssh_port, &mut cursor.ssh_port, c);
-        }
-        RepositoryFormFocus::IdentityFile => {
-            insert_repository_char(&mut fields.identity_file, &mut cursor.identity_file, c);
-        }
-        RepositoryFormFocus::SshOptions => {
-            insert_repository_char(&mut fields.ssh_options, &mut cursor.ssh_options, c);
-        }
-        RepositoryFormFocus::RunAsUser => {
-            insert_repository_char(&mut fields.run_as_user, &mut cursor.run_as_user, c);
+        RepositoryFormFocus::LoginUser
+        | RepositoryFormFocus::Host
+        | RepositoryFormFocus::SshPort
+        | RepositoryFormFocus::IdentityFile
+        | RepositoryFormFocus::SshOptions
+        | RepositoryFormFocus::RunAsUser => {
+            insert_repository_remote_char(fields, cursor, focus, c);
         }
         RepositoryFormFocus::TransientAgentDir => insert_repository_char(
             &mut fields.transient_agent_dir,
@@ -96,12 +122,44 @@ pub(super) fn handle_repository_field_char(
     false
 }
 
-fn move_repository_llxprt_cursor_right(
+fn move_repository_remote_cursor_right(
     fields: &RepositoryFormFields,
     cursor: &mut RepositoryFormCursor,
     focus: RepositoryFormFocus,
 ) {
     match focus {
+        RepositoryFormFocus::LoginUser => {
+            cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
+        }
+        RepositoryFormFocus::Host => cursor.host = move_cursor_right(&fields.host, cursor.host),
+        RepositoryFormFocus::SshPort => {
+            cursor.ssh_port = move_cursor_right(&fields.ssh_port, cursor.ssh_port);
+        }
+        RepositoryFormFocus::IdentityFile => {
+            cursor.identity_file = move_cursor_right(&fields.identity_file, cursor.identity_file);
+        }
+        RepositoryFormFocus::SshOptions => {
+            cursor.ssh_options = move_cursor_right(&fields.ssh_options, cursor.ssh_options);
+        }
+        RepositoryFormFocus::RunAsUser => {
+            cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
+        }
+        _ => {}
+    }
+}
+
+fn move_repository_runtime_cursor_right(
+    fields: &RepositoryFormFields,
+    cursor: &mut RepositoryFormCursor,
+    focus: RepositoryFormFocus,
+) {
+    match focus {
+        RepositoryFormFocus::DefaultCodePuppyVersion => {
+            cursor.default_code_puppy_version = move_cursor_right(
+                &fields.default_code_puppy_version,
+                cursor.default_code_puppy_version,
+            );
+        }
         RepositoryFormFocus::DefaultLlxprtMode => {
             cursor.default_llxprt_mode =
                 move_cursor_right(&fields.default_llxprt_mode, cursor.default_llxprt_mode);
@@ -140,8 +198,10 @@ pub(super) fn move_repository_field_cursor_right(
                 cursor.default_code_puppy_model,
             );
         }
-        RepositoryFormFocus::DefaultLlxprtMode | RepositoryFormFocus::DefaultLlxprtVersion => {
-            move_repository_llxprt_cursor_right(fields, cursor, focus);
+        RepositoryFormFocus::DefaultCodePuppyVersion
+        | RepositoryFormFocus::DefaultLlxprtMode
+        | RepositoryFormFocus::DefaultLlxprtVersion => {
+            move_repository_runtime_cursor_right(fields, cursor, focus);
         }
         RepositoryFormFocus::GitHubRepo => {
             cursor.github_repo = move_cursor_right(&fields.github_repo, cursor.github_repo);
@@ -150,21 +210,13 @@ pub(super) fn move_repository_field_cursor_right(
             cursor.github_issue_pr_repo =
                 move_cursor_right(&fields.github_issue_pr_repo, cursor.github_issue_pr_repo);
         }
-        RepositoryFormFocus::LoginUser => {
-            cursor.login_user = move_cursor_right(&fields.login_user, cursor.login_user);
-        }
-        RepositoryFormFocus::Host => cursor.host = move_cursor_right(&fields.host, cursor.host),
-        RepositoryFormFocus::SshPort => {
-            cursor.ssh_port = move_cursor_right(&fields.ssh_port, cursor.ssh_port);
-        }
-        RepositoryFormFocus::IdentityFile => {
-            cursor.identity_file = move_cursor_right(&fields.identity_file, cursor.identity_file);
-        }
-        RepositoryFormFocus::SshOptions => {
-            cursor.ssh_options = move_cursor_right(&fields.ssh_options, cursor.ssh_options);
-        }
-        RepositoryFormFocus::RunAsUser => {
-            cursor.run_as_user = move_cursor_right(&fields.run_as_user, cursor.run_as_user);
+        RepositoryFormFocus::LoginUser
+        | RepositoryFormFocus::Host
+        | RepositoryFormFocus::SshPort
+        | RepositoryFormFocus::IdentityFile
+        | RepositoryFormFocus::SshOptions
+        | RepositoryFormFocus::RunAsUser => {
+            move_repository_remote_cursor_right(fields, cursor, focus);
         }
         RepositoryFormFocus::TransientAgentDir => {
             cursor.transient_agent_dir =
@@ -205,6 +257,10 @@ pub(super) fn move_agent_field_cursor_right(
         AgentFormFocus::CodePuppyModel => {
             cursor.code_puppy_model =
                 move_cursor_right(&fields.code_puppy_model, cursor.code_puppy_model);
+        }
+        AgentFormFocus::CodePuppyVersion => {
+            cursor.code_puppy_version =
+                move_cursor_right(&fields.code_puppy_version, cursor.code_puppy_version);
         }
         AgentFormFocus::Mode => cursor.mode = move_cursor_right(&fields.mode, cursor.mode),
         AgentFormFocus::LlxprtVersion => {
@@ -253,6 +309,9 @@ pub(super) fn move_repository_field_cursor_left(
         RepositoryFormFocus::DefaultCodePuppyModel => {
             cursor.default_code_puppy_model = move_cursor_left(cursor.default_code_puppy_model);
         }
+        RepositoryFormFocus::DefaultCodePuppyVersion => {
+            cursor.default_code_puppy_version = move_cursor_left(cursor.default_code_puppy_version);
+        }
         RepositoryFormFocus::DefaultLlxprtMode => {
             cursor.default_llxprt_mode = move_cursor_left(cursor.default_llxprt_mode);
         }
@@ -299,6 +358,9 @@ pub(super) fn move_agent_field_cursor_left(cursor: &mut AgentFormCursor, focus: 
         AgentFormFocus::Profile => cursor.profile = move_cursor_left(cursor.profile),
         AgentFormFocus::CodePuppyModel => {
             cursor.code_puppy_model = move_cursor_left(cursor.code_puppy_model);
+        }
+        AgentFormFocus::CodePuppyVersion => {
+            cursor.code_puppy_version = move_cursor_left(cursor.code_puppy_version);
         }
         AgentFormFocus::Mode => cursor.mode = move_cursor_left(cursor.mode),
         AgentFormFocus::LlxprtVersion => {

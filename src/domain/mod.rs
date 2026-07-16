@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 // keep this file under the source-file-size limit.
 mod actions;
 mod quick_resume;
+mod transient_agent;
 pub use actions::*;
 pub use quick_resume::QuickResume;
 
@@ -184,6 +185,9 @@ pub struct Repository {
     /// Default Code Puppy model. Empty preserves Code Puppy's own default.
     #[serde(default)]
     pub default_code_puppy_model: String,
+    /// Default Code Puppy package version copied into newly created Code Puppy agents.
+    #[serde(default)]
+    pub default_code_puppy_version: String,
     /// GitHub repository in `"owner/repo"` format (e.g. `"acme/widgets"`).
     /// When set, issues mode uses this instead of auto-detecting from git remotes.
     #[serde(default)]
@@ -666,6 +670,9 @@ pub struct Agent {
     /// Optional Code Puppy model override. Empty inherits the repository default.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Code Puppy package version. Blank keeps the direct executable launch.
+    #[serde(default)]
+    pub code_puppy_version: String,
     /// Explicit Code Puppy YOLO choice.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -763,6 +770,9 @@ pub struct LaunchSignature {
     /// Effective Code Puppy model for this launch.
     #[serde(default)]
     pub code_puppy_model: String,
+    /// Trimmed Code Puppy package version. Blank launches the direct executable.
+    #[serde(default)]
+    pub code_puppy_version: String,
     /// Explicit Code Puppy YOLO value for this launch.
     #[serde(default)]
     pub code_puppy_yolo: Option<bool>,
@@ -810,6 +820,7 @@ impl Agent {
 
             profile: String::new(),
             code_puppy_model: String::new(),
+            code_puppy_version: String::new(),
             code_puppy_yolo: None,
             code_puppy_quick_resume: false,
             mode_flags: Vec::new(),
@@ -831,93 +842,6 @@ impl Agent {
     pub fn is_running(&self) -> bool {
         self.status == AgentStatus::Running
     }
-
-    /// Whether this agent is transient (created on-the-fly, not persisted).
-    #[must_use]
-    pub fn is_transient(&self) -> bool {
-        self.origin == AgentOrigin::Transient
-    }
-
-    /// Create a transient agent from an immutable launch snapshot.
-    #[must_use]
-    pub fn new_transient_from_signature(
-        id: AgentId,
-        repository_id: RepositoryId,
-        repo: &Repository,
-        signature: &LaunchSignature,
-    ) -> Self {
-        debug_assert!(
-            signature
-                .work_dir
-                .starts_with(repo.effective_transient_dir()),
-            "transient agent work_dir must be under the repo's effective_transient_dir"
-        );
-        Self {
-            id: id.clone(),
-            display_id: id.0.clone(),
-            repository_id,
-            shortcut_slot: None,
-            name: format!("Transient ({})", repo.name),
-            description: String::new(),
-            work_dir: signature.work_dir.clone(),
-            profile: signature.profile.clone(),
-            code_puppy_model: signature.code_puppy_model.clone(),
-            code_puppy_yolo: signature.code_puppy_yolo,
-            code_puppy_quick_resume: signature.code_puppy_quick_resume,
-            mode_flags: signature.mode_flags.clone(),
-            llxprt_debug: signature.llxprt_debug.clone(),
-            pass_continue: signature.pass_continue,
-            sandbox_enabled: signature.sandbox_enabled,
-            sandbox_engine: signature.sandbox_engine,
-            sandbox_flags: signature.sandbox_flags.clone(),
-            agent_kind: signature.agent_kind,
-            status: AgentStatus::Queued,
-            runtime_binding: None,
-            origin: AgentOrigin::Transient,
-            llxprt_version: signature.llxprt_version.clone(),
-        }
-    }
-
-    /// Create a one-shot transient agent from repository defaults.
-    ///
-    /// The agent runs under the repository's effective transient directory,
-    /// is never persisted, and cannot continue an earlier session.
-    #[must_use]
-    pub fn new_transient(
-        id: AgentId,
-        repository_id: RepositoryId,
-        work_dir: PathBuf,
-        repo: &Repository,
-    ) -> Self {
-        debug_assert!(
-            work_dir.starts_with(repo.effective_transient_dir()),
-            "transient agent work_dir must be under the repo's effective_transient_dir"
-        );
-        Self {
-            id: id.clone(),
-            display_id: id.0.clone(),
-            repository_id,
-            shortcut_slot: None,
-            name: format!("Transient ({})", repo.name),
-            description: String::new(),
-            work_dir,
-            profile: repo.default_profile.clone(),
-            code_puppy_model: repo.default_code_puppy_model.clone(),
-            code_puppy_yolo: repo.default_code_puppy_yolo,
-            code_puppy_quick_resume: false,
-            mode_flags: repo.default_llxprt_mode_flags.clone(),
-            llxprt_debug: String::new(),
-            pass_continue: false,
-            sandbox_enabled: false,
-            sandbox_engine: SandboxEngine::Podman,
-            sandbox_flags: DEFAULT_SANDBOX_FLAGS.to_owned(),
-            agent_kind: repo.default_agent_kind,
-            status: AgentStatus::Queued,
-            runtime_binding: None,
-            origin: AgentOrigin::Transient,
-            llxprt_version: repo.default_llxprt_version.clone(),
-        }
-    }
 }
 
 impl Repository {
@@ -931,6 +855,7 @@ impl Repository {
             base_dir,
             default_profile: String::new(),
             default_code_puppy_model: String::new(),
+            default_code_puppy_version: String::new(),
             github_repo: String::new(),
             github_issue_pr_repo: String::new(),
             remote: RemoteRepositorySettings::default(),
