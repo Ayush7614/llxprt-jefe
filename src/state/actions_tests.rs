@@ -604,10 +604,7 @@ mod tests {
             filter: Box::new(ActionsFilter::default()),
             page: 1,
             request_id: 1,
-            runs: vec![
-                make_run_at(1, "t"),
-                make_run_at(2, "t"),
-            ],
+            runs: vec![make_run_at(1, "t"), make_run_at(2, "t")],
             has_more: true,
         });
         assert_eq!(
@@ -639,10 +636,7 @@ mod tests {
             filter: Box::new(ActionsFilter::default()),
             page: 2,
             request_id: req2.get(),
-            runs: vec![
-                make_run_at(4, "t"),
-                make_run_at(3, "t"),
-            ],
+            runs: vec![make_run_at(4, "t"), make_run_at(3, "t")],
             has_more: false,
         });
         assert_eq!(

@@ -187,10 +187,7 @@ mod tests {
             run_at(3, "2026-07-02T10:00:00Z"),
         ];
         sort_workflow_runs_newest_first(&mut runs);
-        assert_eq!(
-            runs.iter().map(|r| r.id).collect::<Vec<_>>(),
-            vec![2, 3, 1]
-        );
+        assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), vec![2, 3, 1]);
     }
 
     #[test]
@@ -201,10 +198,7 @@ mod tests {
             run_at(2, "2026-07-01T10:00:00Z"),
         ];
         sort_workflow_runs_newest_first(&mut runs);
-        assert_eq!(
-            runs.iter().map(|r| r.id).collect::<Vec<_>>(),
-            vec![3, 2, 1]
-        );
+        assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), vec![3, 2, 1]);
     }
 
     #[test]
@@ -215,10 +209,7 @@ mod tests {
             run_at(3, "2026-07-01T10:00:00Z"),
         ];
         sort_workflow_runs_newest_first(&mut runs);
-        assert_eq!(
-            runs.iter().map(|r| r.id).collect::<Vec<_>>(),
-            vec![2, 3, 1]
-        );
+        assert_eq!(runs.iter().map(|r| r.id).collect::<Vec<_>>(), vec![2, 3, 1]);
     }
 
     #[test]
@@ -230,10 +221,7 @@ mod tests {
         ];
         let view = project_runs_list(&runs, Some(0), 5);
         assert_eq!(
-            view.visible_runs
-                .iter()
-                .map(|r| r.id)
-                .collect::<Vec<_>>(),
+            view.visible_runs.iter().map(|r| r.id).collect::<Vec<_>>(),
             vec![2, 3, 1]
         );
         assert!(view.visible_runs[0].is_selected);
