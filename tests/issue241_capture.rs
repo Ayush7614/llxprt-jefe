@@ -26,7 +26,7 @@ fn fake_binaries(temp: &TempDir, capture_text: &str) -> (PathBuf, PathBuf) {
     write_executable(&jefe, "#!/bin/sh\nprintf 'jefe 0.0.29-test\\n'\n");
     let harness = temp.path().join("harness");
     let body = format!(
-        "#!/bin/sh\nset -eu\nout=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = '--out-dir' ]; then out=$2; shift 2; else shift; fi\ndone\nmkdir -p \"$out\"\nfor name in first-agent-dashboard first-agent-new-repository first-agent-new-agent first-agent-terminal-ready first-agent-terminal-response first-agent-result; do\n  printf '%s\\n' '{}' > \"$out/$name.screen.txt\"\ndone\n",
+        "#!/bin/sh\nset -eu\nout=''\nwhile [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = '--out-dir' ]; then out=$2; shift 2; else shift; fi\ndone\nmkdir -p \"$out\"\nroot=$(dirname \"$out\")\nfor operation in issue-search issue-view issue-comments viewer-login issue-assign pr-search pr-view pr-comments pr-threads merge-methods pr-merge; do\n  printf 'ACCEPTED %s\\n' \"$operation\" >> \"$root/private/gh-audit.log\"\ndone\nfor name in first-agent-dashboard first-agent-new-repository first-agent-new-agent first-agent-terminal-ready first-agent-terminal-response first-agent-result first-agent-code-puppy first-agent-issues first-agent-issue-send first-agent-pull-request first-agent-pr-merge; do\n  printf '%s\\n' '{}' > \"$out/$name.screen.txt\"\ndone\n",
         capture_text.replace('\'', "'\\''")
     );
     write_executable(&harness, &body);
@@ -175,12 +175,24 @@ fn capture_rejects_non_executable_binary_paths_before_creating_root() {
     assert!(!root.exists());
 }
 
+fn assert_publication_grid(publication: &str) {
+    let directory = publication
+        .lines()
+        .find_map(|line| line.strip_prefix("Dir: "))
+        .map(str::trim_end);
+    assert_eq!(directory, Some("~/projects/llxprt-jefe/…"));
+    assert!(
+        publication.lines().all(|line| line.chars().count() == 100),
+        "publication rows must preserve the fixed 100-column capture grid"
+    );
+}
+
 #[test]
 fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     let temp = TempDir::new().unwrap_or_else(|error| panic!("tempdir: {error}"));
     let (jefe, harness) = fake_binaries(
         &temp,
-        "pid:123\nTutorial Agent ready        pid:456\nProcess (pid:789) exited\n[private-host 12:34 16-Jul-26",
+        "pid:123\nTutorial Agent ready        pid:456\nProcess (pid:789) exited\n[private-host 12:34 16-Jul-26\nDir: /a/…",
     );
     let root = temp.path().join("capture");
     let output = capture(&root, &jefe, &harness);
@@ -209,7 +221,7 @@ fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
         .unwrap_or_else(|error| panic!("read svg: {error}"));
     assert!(svg.contains("width=\"880\" height=\"594\""));
     assert!(svg.contains("Tutorial Agent ready"));
-    assert!(svg.contains("pid:[redacted]"));
+    assert!(svg.contains("pid:xxx"));
     assert!(svg.contains("[terminal status redacted]"));
     assert!(!svg.contains("pid:123"));
     assert!(!svg.contains("pid:456"));
@@ -217,10 +229,7 @@ fn successful_capture_records_provenance_and_renders_fixed_safe_svgs() {
     assert!(!svg.contains("private-host"));
     let publication = fs::read_to_string(root.join("private/first-agent-result.publication.txt"))
         .unwrap_or_else(|error| panic!("read publication text: {error}"));
-    assert!(
-        publication.lines().all(|line| line.chars().count() == 100),
-        "publication rows must preserve the fixed 100-column capture grid"
-    );
+    assert_publication_grid(&publication);
 }
 
 #[test]
@@ -243,6 +252,11 @@ fn renderer_contains_the_final_terminal_column_inside_fixed_padding() {
         "first-agent-terminal-ready",
         "first-agent-terminal-response",
         "first-agent-result",
+        "first-agent-code-puppy",
+        "first-agent-issues",
+        "first-agent-issue-send",
+        "first-agent-pull-request",
+        "first-agent-pr-merge",
     ] {
         let path = root.join(format!("publication/{name}.svg"));
         let svg = fs::read_to_string(&path)
@@ -264,6 +278,11 @@ fn committed_tutorial_assets_keep_right_borders_inside_the_viewport() {
         "first-agent-new-repository.svg",
         "first-agent-new-agent.svg",
         "first-agent-result.svg",
+        "first-agent-code-puppy.svg",
+        "first-agent-issues.svg",
+        "first-agent-issue-send.svg",
+        "first-agent-pull-request.svg",
+        "first-agent-pr-merge.svg",
     ] {
         let path = assets.join(name);
         let svg = fs::read_to_string(&path)
@@ -274,14 +293,18 @@ fn committed_tutorial_assets_keep_right_borders_inside_the_viewport() {
             .map(rendered_text)
             .collect::<Vec<_>>();
         assert!(
-            rows.iter()
-                .any(|row| row.trim_end_matches([' ', '*']).ends_with('╮')),
-            "right border missing from {name}"
+            rows.iter().any(|row| {
+                let row = row.trim_end_matches([' ', '*']);
+                row.ends_with('╮') || row.ends_with('╗') || row.ends_with('─')
+            }),
+            "right corner missing from {name}"
         );
         assert!(
-            rows.iter()
-                .any(|row| row.trim_end_matches([' ', '*']).ends_with('│')),
-            "right border missing from {name}"
+            rows.iter().any(|row| {
+                let row = row.trim_end_matches([' ', '*']);
+                row.ends_with('│') || row.ends_with('║')
+            }),
+            "right vertical border missing from {name}"
         );
         assert_terminal_grid_is_contained(&svg, name);
     }
