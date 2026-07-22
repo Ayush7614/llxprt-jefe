@@ -36,6 +36,17 @@ pub(super) fn open_manager_shell_window(
     open_shell_window(&session.session_name, &session.launch_signature.work_dir)
 }
 
+pub(super) fn select_manager_shell_window(
+    sessions: &HashMap<AgentId, RuntimeSession>,
+    agent_id: &AgentId,
+) -> Result<(), RuntimeError> {
+    let session = manager_session(sessions, agent_id)?;
+    if !shell_window_exists(&session.session_name)? {
+        return Err(RuntimeError::SessionNotFound(agent_id.0.clone()));
+    }
+    select_shell_window(&session.session_name)
+}
+
 pub(super) fn close_manager_shell_window(
     sessions: &HashMap<AgentId, RuntimeSession>,
     agent_id: &AgentId,

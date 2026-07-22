@@ -82,16 +82,14 @@ impl AppState {
         self.terminal_manager.preview = super::ShellPreview::default();
         if let Some(prior) = self.terminal_manager.prior_agent_focus.take() {
             self.pane_focus = prior.pane_focus;
-            if let Some(idx) = prior.selected_agent_index
-                && idx < self.agents.len()
-            {
-                self.selected_agent_index = Some(idx);
-            }
-            if let Some(idx) = prior.selected_repository_index
-                && idx < self.repositories.len()
-            {
-                self.selected_repository_index = Some(idx);
-            }
+            self.selected_agent_index = prior
+                .selected_agent_index
+                .map(|idx| idx.min(self.agents.len().saturating_sub(1)))
+                .filter(|_| !self.agents.is_empty());
+            self.selected_repository_index = prior
+                .selected_repository_index
+                .map(|idx| idx.min(self.repositories.len().saturating_sub(1)))
+                .filter(|_| !self.repositories.is_empty());
         } else {
             self.pane_focus = PaneFocus::Agents;
         }
@@ -427,6 +425,21 @@ mod tests {
         ));
         assert!(!ok);
         assert!(state.terminal_manager.pending_focus.is_some());
+    }
+
+    #[test]
+    fn exit_manager_clamps_prior_focus_after_lists_shrink() {
+        let mut state = state_with_two_shells();
+        state.selected_agent_index = Some(1);
+        state.selected_repository_index = Some(0);
+        state.apply_terminal_manager_message(TerminalManagerMessage::EnterMode);
+        state.agents.truncate(1);
+        state.repositories.clear();
+
+        state.apply_terminal_manager_message(TerminalManagerMessage::ExitMode);
+
+        assert_eq!(state.selected_agent_index, Some(0));
+        assert_eq!(state.selected_repository_index, None);
     }
 
     #[test]

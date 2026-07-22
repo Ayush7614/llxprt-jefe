@@ -263,12 +263,12 @@ fn select_pending_runtime_shell(
             "runtime context lock unavailable".to_owned(),
         )
     })?;
-    if guard.runtime.attached_agent() != Some(owner) || !guard.runtime.shell_window_exists(owner)? {
+    if guard.runtime.attached_agent() != Some(owner) {
         return Err(jefe::runtime::RuntimeError::SessionNotFound(
             owner.0.clone(),
         ));
     }
-    guard.runtime.open_shell_window(owner)?;
+    guard.runtime.select_shell_window(owner)?;
     drop(guard);
     Ok(true)
 }
@@ -327,6 +327,7 @@ pub async fn complete_pending_shell_focus(
         &ctx,
         AppEvent::ConfirmShellFocus(attached_agent_id),
     );
+    crate::app_input::shell_overlay::resize_for_active_layout(&ctx, true);
 }
 
 /// Poll pending focus requests so same-owner `Stable` scheduler outcomes also

@@ -27,9 +27,17 @@ EOF
 chmod +x "$BIN_DIR/llxprt"
 
 cargo build --manifest-path "$PROJECT_ROOT/Cargo.toml" --bin jefe --bin jefe-tmux-harness
-PATH="$BIN_DIR:$PATH" "$PROJECT_ROOT/target/debug/jefe-tmux-harness" \
+JEFE_BIN="$PROJECT_ROOT/target/debug/jefe"
+HARNESS_BIN="$PROJECT_ROOT/target/debug/jefe-tmux-harness"
+for binary in "$JEFE_BIN" "$HARNESS_BIN"; do
+    if [[ ! -x "$binary" ]]; then
+        echo "ERROR: expected built executable not found: $binary" >&2
+        exit 1
+    fi
+done
+PATH="$BIN_DIR:$PATH" "$HARNESS_BIN" \
     --scenario "$SCENARIO" \
-    --jefe-bin "$PROJECT_ROOT/target/debug/jefe" \
+    --jefe-bin "$JEFE_BIN" \
     --config "$CONFIG_DIR" \
     --working-dir "$WORK_DIR" \
     --out-dir "$ARTIFACT_DIR" \

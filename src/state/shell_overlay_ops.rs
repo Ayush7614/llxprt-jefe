@@ -74,17 +74,14 @@ impl AppState {
         self.shell_overlay.agent_id = None;
         self.terminal_focused = false;
         self.dashboard_grab = None;
+        let previous_pane_focus = self.shell_overlay.previous_pane_focus.take();
         if self.shell_return_target == crate::state::ShellReturnTarget::TerminalManager {
             self.screen_mode = crate::state::ScreenMode::DashboardTerminals;
             self.terminal_manager.active = true;
             self.pane_focus = crate::state::PaneFocus::Agents;
             self.shell_return_target = crate::state::ShellReturnTarget::Dashboard;
         } else {
-            self.pane_focus = self
-                .shell_overlay
-                .previous_pane_focus
-                .take()
-                .unwrap_or(crate::state::PaneFocus::Agents);
+            self.pane_focus = previous_pane_focus.unwrap_or(crate::state::PaneFocus::Agents);
         }
         self.reset_shell_terminal_view();
     }
@@ -220,6 +217,26 @@ mod tests {
         state.open_shell_overlay(AgentId("agent-1".into()));
         state.close_shell_overlay();
         assert_eq!(state.pane_focus, PaneFocus::Repositories);
+    }
+
+    #[test]
+    fn manager_restore_consumes_previous_focus_and_return_target() {
+        let mut state = AppState::default();
+        state.shell_return_target = crate::state::ShellReturnTarget::TerminalManager;
+        state.open_shell_overlay(AgentId("agent-1".into()));
+
+        state.hide_shell_overlay();
+
+        assert_eq!(
+            state.screen_mode,
+            crate::state::ScreenMode::DashboardTerminals
+        );
+        assert!(state.terminal_manager.active);
+        assert_eq!(state.shell_overlay.previous_pane_focus, None);
+        assert_eq!(
+            state.shell_return_target,
+            crate::state::ShellReturnTarget::Dashboard
+        );
     }
 
     #[test]

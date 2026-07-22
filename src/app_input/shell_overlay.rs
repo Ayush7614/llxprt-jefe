@@ -470,7 +470,7 @@ fn hide_runtime_shell_window(
     guard.runtime.hide_shell_window(agent_id)
 }
 
-fn resize_for_active_layout(ctx: &SharedContext, overlay_active: bool) {
+pub(super) fn resize_for_active_layout(ctx: &SharedContext, overlay_active: bool) {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 40));
     resize_terminal(ctx, cols, rows, overlay_active);
 }
