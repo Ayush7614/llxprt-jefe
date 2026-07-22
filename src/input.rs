@@ -167,7 +167,7 @@ pub fn input_mode_for_state(state: &AppState) -> InputMode {
 /// on some platforms) and must not be treated as an interrupt.
 #[must_use]
 pub fn is_bare_ctrl_c(key: &KeyEvent) -> bool {
-    key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL
+    matches!(key.code, KeyCode::Char('c' | 'C')) && key.modifiers == KeyModifiers::CONTROL
 }
 
 /// Whether `Ctrl-C` should be forwarded to the currently-attached agent
@@ -477,12 +477,25 @@ mod tests {
     }
 
     #[test]
-    fn is_bare_ctrl_c_accepts_lowercase_only_not_uppercase() {
-        // Ctrl-Shift-C (uppercase) is a host copy shortcut on some platforms
-        // and must not be treated as an interrupt.
-        assert!(!is_bare_ctrl_c(&key_mods(
+    fn is_bare_ctrl_c_accepts_caps_lock_uppercase_c() {
+        // Caps Lock yields Char('C') with CONTROL only (mirrors is_quit_key).
+        assert!(is_bare_ctrl_c(&key_mods(
             KeyCode::Char('C'),
             KeyModifiers::CONTROL
+        )));
+    }
+
+    #[test]
+    fn is_bare_ctrl_c_rejects_ctrl_shift_c_chord() {
+        // Ctrl-Shift-C is a host copy shortcut on some platforms and must not
+        // be treated as an interrupt.
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('C'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
+        )));
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT
         )));
     }
 
@@ -495,6 +508,18 @@ mod tests {
         assert!(!is_bare_ctrl_c(&key_mods(
             KeyCode::Char('c'),
             KeyModifiers::CONTROL | KeyModifiers::ALT
+        )));
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('C'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT
+        )));
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::SUPER
+        )));
+        assert!(!is_bare_ctrl_c(&key_mods(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL | KeyModifiers::META
         )));
     }
 
@@ -541,6 +566,16 @@ mod tests {
         assert!(!should_forward_ctrl_c_to_attached_terminal(
             &ctrl_c,
             InputMode::TerminalCapture,
+            true
+        ));
+    }
+
+    #[test]
+    fn ctrl_c_forward_accepts_caps_lock_ctrl_c() {
+        let caps_ctrl_c = key_mods(KeyCode::Char('C'), KeyModifiers::CONTROL);
+        assert!(should_forward_ctrl_c_to_attached_terminal(
+            &caps_ctrl_c,
+            InputMode::Normal,
             true
         ));
     }
