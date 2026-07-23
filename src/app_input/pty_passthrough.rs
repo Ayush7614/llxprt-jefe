@@ -99,10 +99,9 @@ pub(super) fn probe_attached_terminal(ctx: Option<&CtxArc>) -> AttachedTerminalP
         return AttachedTerminalProbe::Absent;
     };
     match ctx_arc.try_lock() {
-        Ok(guard) => attached_terminal_probe_from_lock(
-            true,
-            guard.runtime.attached_agent().is_some(),
-        ),
+        Ok(guard) => {
+            attached_terminal_probe_from_lock(true, guard.runtime.attached_agent().is_some())
+        }
         Err(_) => AttachedTerminalProbe::Busy,
     }
 }

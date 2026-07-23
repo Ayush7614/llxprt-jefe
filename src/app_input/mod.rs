@@ -874,4 +874,3 @@ mod pty_passthrough_tests;
 #[cfg(test)]
 #[path = "split_mode_key_tests.rs"]
 mod split_mode_key_tests;
-

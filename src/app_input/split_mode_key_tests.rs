@@ -28,7 +28,10 @@ fn dashboard_s_emits_enter_split_mode_via_resolver() {
 fn split_esc_emits_exit_split_mode_via_resolver() {
     let handling = resolve_mode_key(&key(KeyCode::Esc), ScreenMode::Split);
     assert!(
-        matches!(handling, KeyHandling::Handled(Some(AppEvent::ExitSplitMode))),
+        matches!(
+            handling,
+            KeyHandling::Handled(Some(AppEvent::ExitSplitMode))
+        ),
         "Split Esc must emit ExitSplitMode"
     );
 }
